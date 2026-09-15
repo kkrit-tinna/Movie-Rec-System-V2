@@ -491,4 +491,4 @@ Append here whenever reality differs. Date, task ID, what changed, why (one line
 - 2026-09-14 — T1.3 keyword sentence fixed (keywords are held-out label,
   85.5% coverage at vote_count>=50); catalog estimate corrected 100-200K
   -> ~70K, min_vote_count stays 10; source is ~1.5M rows not 930K;
-  venv on Python 3.x; ...
+  Python 3.12.5 chosen, container base moved 3.11-slim -> 3.12-slim to match

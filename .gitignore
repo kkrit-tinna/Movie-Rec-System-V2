@@ -1,0 +1,23 @@
+# Data and artifacts
+data/*
+!data/sample/
+artifacts/
+
+# Notes and documentation
+notes/
+MEMORY.md
+
+# Environment variables
+.env
+movie_rec_venv/
+
+# Model artifacts
+*.joblib
+*.npz
+
+# Compiled source
+__pycache__/
+.DS_Store
+
+# Credentials
+kaggle.json

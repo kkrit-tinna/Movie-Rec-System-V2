@@ -1,0 +1,13 @@
+catalog:
+  min_overview_chars: 40
+  min_vote_count: 10
+  exclude_adult: true
+  status: ["Released"]
+
+tfidf:
+  max_features: 50000
+  ngram_range: [1, 2]
+  min_df: 3
+  max_df: 0.6
+  sublinear_tf: true
+  stop_words: english

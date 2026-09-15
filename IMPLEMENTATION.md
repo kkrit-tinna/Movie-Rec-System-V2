@@ -113,7 +113,7 @@ Set a **$2 AWS Budgets alert before task T4.1.** If a month ever exceeds $2, som
 ```
 movie-recommender/
 ├── README.md                  # architecture diagram + `make demo` first
-├── IMPLEMENTATION_GUIDE.md    # this file
+├── IMPLEMENTATION.md    # this file
 ├── Makefile
 ├── pyproject.toml
 ├── Dockerfile                 # ONE image: local, CI, and Fargate
@@ -243,7 +243,7 @@ catalog:
   status: ["Released"]
 ```
 
-Report both counts in every run: rows ingested (~1.5M) and rows in the catalog (~70K). **Ingesting 1.5M and serving a curated subset is the correct design, and the gap between the two numbers is a data-quality talking point, not something to hide.**
+Report both counts in every run: rows ingested (~1.5M) and rows in the catalog (77,281). **Ingesting 1.5M and serving a curated subset is the correct design, and the gap between the two numbers is a data-quality talking point, not something to hide.**
 
 **Done when:** `python -m movierec.data.ingest --input data/sample/movies_5k.csv --dry-run` prints ingested and catalog counts.
 
@@ -488,7 +488,9 @@ Keep these in the README under "Engineering notes" — reviewers read that secti
 
 Append here whenever reality differs. Date, task ID, what changed, why (one line per day).
 
-- 2026-09-14 — T1.3 keyword sentence fixed (keywords are held-out label,
-  85.5% coverage at vote_count>=50); catalog estimate corrected 100-200K
-  -> ~70K, min_vote_count stays 10; source is ~1.5M rows not 930K;
-  Python 3.12.5 chosen, container base moved 3.11-slim -> 3.12-slim to match
+- 2026-09-14 — T1.1 done. Source 1,495,113 rows not 930K. Catalog after
+  §4 filters = 77,281 (guide said 100-200K); vote_count>=10 is the binding
+  filter. Keywords kept as held-out label: 85.5% coverage at >=50, median 5,
+  random-baseline Jaccard 0.0027. No collection column → T2.4 skipped.
+  Python 3.12.5 local, container base moved to 3.12-slim. Whitespace
+  collapsed on sample write; T1.3 prepare() must match.

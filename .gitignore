@@ -21,3 +21,11 @@ __pycache__/
 
 # Credentials
 kaggle.json
+
+# Notebooks
+*.ipynb
+
+# Build artifacts
+*.egg-info/
+build/
+dist/

@@ -3,12 +3,16 @@
 **Status:** spec for a 4-week upgrade, Sep 8 – Oct 5, 2026
 **Budget:** 15 min/day Mon–Fri, 30–45 min Sunday
 **Audience:** the author, and Claude Code
-
+**Schedule:** Phase 1 slipped one week; Phase 3 dropped Sep 15.
+No work Sun Sep 20 or Sun Oct 4. Weekly close moves to Sat Sep 19;
+Sun Sep 27 is the last long block.
 ---
 
 ## 0. How to use this document
 
 **Humans:** read §1–§3 once, then work through §4–§7 one task per day.
+The 15 min/day budget is your reading time, not task runtime; if a task
+exceeds it, stop, split it, and log the split in §9.
 
 **Claude Code:** this file is the source of truth. Rules:
 
@@ -18,7 +22,6 @@
 4. Never invent AWS resources outside `infra/`. All infrastructure is Terraform.
 5. Never commit credentials, `.env`, `kaggle.json`, or anything in `data/`.
 6. If the real data disagrees with this spec (a column is missing, a count is off), **update this file in the same commit** and note it under §9 Deviations. Do not silently work around it.
-7. 15 min/day budget is your reading time, not task runtime;
 
 ---
 
@@ -283,6 +286,32 @@ Output: `neighbours.parquet` with `movie_id, rank, neighbour_id, score`.
 
 ---
 
+### T1.6 — Data quality gates
+**Depends on:** T1.5
+**Commit:** `feat: data-quality-rules`
+
+`data/quality.py`. Each gate returns pass/fail plus the observed value. **Failing gates abort the run before anything is written to S3 or DynamoDB.** A pipeline that publishes bad data is worse than one that stops.
+
+Thresholds below are provisional; set real values Sat Sep 19 from the full-catalog run.
+```yaml
+quality:
+  row_count_min: 1300000
+  row_count_drift_pct: 15        # first run has no baseline — gate skips with "no previous run"
+  catalog_count_min: 70000
+  null_rate_max:
+    title: 0.001
+    overview: 0.60               # expected to be high; the filter handles it
+  duplicate_id_rate_max: 0.0
+  embedding_nan_rate_max: 0.0
+  zero_vector_rate_max: 0.02     # inert until Word2Vec lands in Phase 2
+```
+
+Write `quality_report.json` next to the metrics on every run, pass or fail.
+
+**Done when:** `pytest tests/test_quality.py` passes, with a test per gate that deliberately feeds it failing data. **These tests matter more than any others in the repo** — an untested gate is a gate that will wave the bad run through.
+
+---
+
 ### Sunday, Week 1 — `feat: tfidf-production-ready`
 Run the full pipeline on the complete dataset locally. Record wall time and peak RSS in `docs/schema.md`. If peak RSS exceeds 4 GB, lower `max_features` and note it — the Fargate task size in §7 assumes 4 GiB.
 
@@ -344,6 +373,11 @@ Write `docs/comparison.md`: the metrics table, two charts (accuracy by method, l
 ---
 
 ## 6. Phase 3 — Tuning and quality gates (Week 3, Sep 22–28)
+***Dropped Sep 15 — two Sundays lost and Phase 1 slipped a week.
+Prerequisites §8 named this as the droppable work. Two items are not
+tuning and survive: T3.5 quality gates → T1.6 (Fri Sep 18, thresholds
+set Sat Sep 19 after the full run); the Week 3 Sunday runbook →
+Phase 4, T4.7.***
 
 ### T3.1 / T3.2 — TF-IDF sweep
 **Commits:** `feat: tfidf-parameter-analysis`, `feat: tfidf-optimization`
@@ -472,6 +506,18 @@ README order: one-sentence description → architecture diagram → `make demo` 
 
 ---
 
+### T4.7 — Production runbook
+**Depends on:** T4.5
+**Commit:** `docs: production-deployment-guide`
+
+`docs/runbook.md`: how to trigger a run manually, how to roll back
+`current.json`, what each alert means, what to do when a gate fails.
+
+**Done when:** a reader who has never seen the project can trigger a
+run and roll back a bad one using only this file.
+
+---
+
 ## 8. Interview material this produces
 
 Keep these in the README under "Engineering notes" — reviewers read that section, and it is where the reasoning lives that a bullet point cannot carry.
@@ -494,3 +540,9 @@ Append here whenever reality differs. Date, task ID, what changed, why (one line
   random-baseline Jaccard 0.0027. No collection column → T2.4 skipped.
   Python 3.12.5 local, container base moved to 3.12-slim. Whitespace
   collapsed on sample write; T1.3 prepare() must match.
+- 2026-09-15 — T1.2 done (9 tests, LocalStore + S3Store stub). Phase 3
+  dropped: two Sundays unavailable (Sep 20, Oct 4) and Phase 1 slipped a
+  week. Surviving items — T3.5 quality gates → T1.6 (Fri Sep 18); Week 3
+  runbook → T4.7. Phase dates shifted: P1 Sep 14–19, P2 Sep 21–27,
+  P4 Sep 28–Oct 5. Gate floors set from real data: row_count_min 800K →
+  1.3M, catalog_count_min 50K → 70K.

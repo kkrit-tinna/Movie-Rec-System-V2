@@ -546,3 +546,6 @@ Append here whenever reality differs. Date, task ID, what changed, why (one line
   runbook → T4.7. Phase dates shifted: P1 Sep 14–19, P2 Sep 21–27,
   P4 Sep 28–Oct 5. Gate floors set from real data: row_count_min 800K →
   1.3M, catalog_count_min 50K → 70K.
+- 2026-09-16 — T1.3 done. Sample catalog = 262 of 5,000 rows (decile
+  stratification + min_vote_count 10). Correct behaviour, but thin for
+  T4.6 `make demo`; revisit there, possibly with a separate demo sample.

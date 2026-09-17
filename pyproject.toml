@@ -6,6 +6,7 @@ dependencies = [
     "pandas",
     "scikit-learn",
     "scipy",
+    "joblib",
     "pyarrow",
     "pyyaml",
     "kaggle",

@@ -550,3 +550,12 @@ Append here whenever reality differs. Date, task ID, what changed, why (one line
 - 2026-09-16 — T1.3 done. Sample catalog = 262 of 5,000 rows (decile
   stratification + min_vote_count 10). Correct behaviour, but thin for
   T4.6 `make demo`; revisit there, possibly with a separate demo sample.
+- 2026-09-18 — T1.5 done (+ Makefile, which §3 listed but no task created).
+  Full-catalog run: 1,495,113 ingested, 77,281 catalog, 772,810 neighbour
+  rows. Peak RSS 6.27 GiB, over §7's 4 GiB assumption. Profiled per step:
+  neighbours 6.06, ingest 3.53, embedder 3.07. usecols trim (24 → 13
+  columns) cut ingest to 2.85 but left the overall peak unchanged. Real
+  cause: a 5,000 × 77,281 float64 similarity block, 3.09 GB alone. Fixed by
+  casting to float32 before the matmul and chunk_size 5000 → 2000 — full
+  chain now 3.05 GiB and 112s, down from 127s. §7 stays at 4 GiB; no model
+  change. Timeline extended to Oct 12; Phase 3 stays dropped.

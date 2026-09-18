@@ -85,3 +85,17 @@ n_pairs=1000, seed=42, pool = rows with vote_count >= 50 and non-empty keywords 
 
 **Mean Jaccard: 0.0027** — this is the random-baseline floor for T2.3 Keyword Jaccard@10.
 
+
+## Full-catalog run — 2026-09-18
+
+- Wall time: 112s
+- Peak RSS: 3.05 GiB (within the 4 GiB Fargate budget in §7)
+- Rows ingested: 1,495,113
+- Catalog after §4 filters: 77,281
+- Neighbour rows: 772,810 (77,281 × K=10)
+
+Peak was initially 6.27 GiB. Profiling per step put it in the
+neighbours chunking: a 5,000 × 77,281 float64 similarity block is
+3.09 GB on its own. Casting to float32 before the matmul and
+reducing chunk_size to 2,000 brought the full chain to 3.05 GiB and
+cut 12% off wall time, with no change to the model.

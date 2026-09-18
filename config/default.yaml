@@ -11,3 +11,7 @@ tfidf:
   max_df: 0.6
   sublinear_tf: true
   stop_words: english
+
+index:
+  k: 10
+  chunk_size: 2000

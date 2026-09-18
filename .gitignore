@@ -29,3 +29,6 @@ kaggle.json
 *.egg-info/
 build/
 dist/
+
+# Profiling scratch
+run_*.log

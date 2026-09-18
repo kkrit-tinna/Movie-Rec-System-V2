@@ -1,11 +1,12 @@
 # Movie Recommender v2 — Implementation Guide (AWS)
 
-**Status:** spec for a 4-week upgrade, Sep 8 – Oct 5, 2026
-**Budget:** 15 min/day Mon–Fri, 30–45 min Sunday
+**Status:** spec for a 5-week upgrade, Sep 8 – Oct 12, 2026
+**Budget:** 15 min/day Mon–Fri; the 30–45 min long-session budget applies
+to Sun Sep 27, Sat Oct 10, and Sun Oct 11 only.
 **Audience:** the author, and Claude Code
-**Schedule:** Phase 1 slipped one week; Phase 3 dropped Sep 15.
-No work Sun Sep 20 or Sun Oct 4. Weekly close moves to Sat Sep 19;
-Sun Sep 27 is the last long block.
+**Schedule:** Phase 1 slipped one week; Phase 3 dropped Sep 15 and stays
+dropped — the extra week is buffer for Phase 4, not a Phase 3 reinstatement.
+No work Saturdays except Sat Oct 10. No work Sun Sep 20 or Sun Oct 4.
 ---
 
 ## 0. How to use this document
@@ -292,7 +293,7 @@ Output: `neighbours.parquet` with `movie_id, rank, neighbour_id, score`.
 
 `data/quality.py`. Each gate returns pass/fail plus the observed value. **Failing gates abort the run before anything is written to S3 or DynamoDB.** A pipeline that publishes bad data is worse than one that stops.
 
-Thresholds below are provisional; set real values Sat Sep 19 from the full-catalog run.
+Thresholds below are provisional; set real values Sep 18 from the full-catalog run.
 ```yaml
 quality:
   row_count_min: 1300000
@@ -317,7 +318,7 @@ Run the full pipeline on the complete dataset locally. Record wall time and peak
 
 ---
 
-## 5. Phase 2 — Word2Vec and evaluation (Week 2, Sep 15–21)
+## 5. Phase 2 — Word2Vec and evaluation (Week 2, Sep 21–27)
 
 ### T2.1 — `Word2VecEmbedder`
 **Depends on:** T1.5
@@ -376,7 +377,7 @@ Write `docs/comparison.md`: the metrics table, two charts (accuracy by method, l
 ***Dropped Sep 15 — two Sundays lost and Phase 1 slipped a week.
 Prerequisites §8 named this as the droppable work. Two items are not
 tuning and survive: T3.5 quality gates → T1.6 (Fri Sep 18, thresholds
-set Sat Sep 19 after the full run); the Week 3 Sunday runbook →
+set Sep 18 after the full run); the Week 3 Sunday runbook →
 Phase 4, T4.7.***
 
 ### T3.1 / T3.2 — TF-IDF sweep
@@ -417,7 +418,7 @@ Write the runbook: how to trigger a run manually, how to roll back `current.json
 
 ---
 
-## 7. Phase 4 — AWS (Week 4, Sep 29 – Oct 5)
+## 7. Phase 4 — AWS (Week 4, Sep 28 – Oct 11)
 
 **Before T4.1:** create the AWS account choosing the **Paid plan** (credits still apply; the account will not close when they run out), enable MFA on root, create an IAM admin user, and set a **$2 budget alert**.
 

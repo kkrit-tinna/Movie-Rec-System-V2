@@ -21,28 +21,17 @@ DOCUMENT_FIELDS = ["title", "tagline", "overview", "genres"]
 DTYPES = {
     "id": "int64",
     "title": "string",
+    "tagline": "string",
+    "overview": "string",
+    "genres": "string",
+    "keywords": "string",
+    "release_date": "string",
+    "runtime": "int64",
     "vote_average": "float64",
     "vote_count": "int64",
     "status": "string",
-    "release_date": "string",
-    "revenue": "int64",
-    "runtime": "int64",
     "adult": "boolean",
-    "backdrop_path": "string",
-    "budget": "int64",
-    "homepage": "string",
-    "imdb_id": "string",
-    "original_language": "string",
-    "original_title": "string",
-    "overview": "string",
-    "popularity": "float64",
     "poster_path": "string",
-    "tagline": "string",
-    "genres": "string",
-    "production_companies": "string",
-    "production_countries": "string",
-    "spoken_languages": "string",
-    "keywords": "string",
 }
 
 
@@ -69,8 +58,13 @@ def download(dest: str = RAW_PATH) -> Path:
 
 
 def load(path: str) -> pd.DataFrame:
-    """Dtype-explicit read of the raw TMDB CSV (see docs/schema.md)."""
-    return pd.read_csv(path, dtype=DTYPES)
+    """Dtype-explicit read of the raw TMDB CSV (see docs/schema.md).
+
+    Only the columns the pipeline actually uses are read; the source file
+    carries several more (backdrop_path, budget, homepage, ...) that are
+    dropped here rather than loaded and ignored.
+    """
+    return pd.read_csv(path, usecols=list(DTYPES.keys()), dtype=DTYPES)
 
 
 def _load_catalog_config() -> dict:

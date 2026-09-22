@@ -3,7 +3,9 @@
 Wraps sklearn's TfidfVectorizer with every parameter read from the `tfidf`
 block in config/default.yaml -- see IMPLEMENTATION.md T1.4.
 """
+import argparse
 import io
+from datetime import date
 from pathlib import Path
 
 import joblib
@@ -84,3 +86,30 @@ class TfidfEmbedder(BaseEmbedder):
         embedder.movie_ids = row_index.sort_values("row")["movie_id"].tolist()
 
         return embedder
+
+
+def main() -> None:
+    from movierec.data.ingest import load, prepare
+    from movierec.storage.local import LocalStore
+
+    parser = argparse.ArgumentParser(
+        description="Fit a TfidfEmbedder on --input and save it via LocalStore."
+    )
+    parser.add_argument("--input", required=True, help="already-downloaded CSV path")
+    parser.add_argument("--run-date", default=date.today().isoformat())
+    parser.add_argument("--storage-root", default="./artifacts", help="LocalStore root")
+    args = parser.parse_args()
+
+    catalog = prepare(load(args.input))
+
+    embedder = TfidfEmbedder()
+    embedder.fit(catalog["document"].tolist(), catalog["id"].tolist())
+
+    store = LocalStore(root=args.storage_root)
+    embedder.save(store, args.run_date)
+
+    print(f"fit and saved tfidf embedder for {len(catalog)} rows, run_date={args.run_date}")
+
+
+if __name__ == "__main__":
+    main()

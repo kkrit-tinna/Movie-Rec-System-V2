@@ -30,6 +30,7 @@ Phase 2.
   or `docs: embedding-comparison-report`.
 - Never commit anything under `data/` except `data/sample/`.
 - Never read, move, or commit `~/.kaggle/kaggle.json` or `.env`.
+- Never run git commit or git push. Stop when Done-when passes and summarise the changed files.
 
 ## Scope
 No Spark, no clusters, no AWS resources outside `infra/`. Cost target is

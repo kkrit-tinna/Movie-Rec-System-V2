@@ -7,7 +7,7 @@
 I'm continuing a project from a previous Claude conversation. Here's the context, the decisions already made, and where I am. Please read the three attached files before responding.
 
 **Attached:**
-- `IMPLEMENTATION_GUIDE.md` — the task-by-task spec (source of truth)
+- `IMPLEMENTATION.md` — the task-by-task spec (source of truth)
 - `PREREQUISITES.md` — setup checklist
 - `CLOUD_PRIMER.md` — cloud fundamentals + interview prep
 
@@ -19,8 +19,6 @@ Master's student in Data Science at Northeastern, graduating Winter 2026. Curren
 
 **I'm a complete beginner with cloud computing.** I followed a step-by-step GCP guide once without understanding what I was doing. Assume no cloud knowledge unless I demonstrate it.
 
-**Time budget:** 15 min/day Mon–Fri, 30–45 min Sunday. This constraint is real and drives most scoping decisions.
-
 ---
 
 ## The project
@@ -28,8 +26,6 @@ Master's student in Data Science at Northeastern, graduating Winter 2026. Curren
 A content-based movie recommender. Version 1 exists: TF-IDF embeddings, a Flask website, and a weekly job on GCP Dataproc/Spark. The GCP free trial has ended, so I'm rebuilding.
 
 **User story:** visitor types a movie name, gets 10 similar movies with poster, year, rating, and a short overview.
-
-**Timeline:** 4-week upgrade, Sep 8 – Oct 5, 2026.
 
 ---
 
@@ -50,10 +46,7 @@ So there's nothing to embed at request time. Serving is a DynamoDB key lookup. T
 **5. Keywords are held out as evaluation labels.**
 TMDB keyword tags are deliberately excluded from the text the embeddings are built from, so they can serve as genuine ground truth for Keyword Jaccard@10. **This constraint propagates through the whole project** — if keywords get added back into the document text, the primary metric becomes circular.
 
-**6. GloVe-100, not GoogleNews-300.**
-The 3.6 GB model won't fit alongside the corpus in a 4 GiB Fargate task. Week 3 tests whether a larger or domain-trained model earns its cost.
-
-**7. Public subnet with a security group, not private + NAT Gateway.**
+**6. Public subnet with a security group, not private + NAT Gateway.**
 A NAT Gateway is ~$32/month, roughly 60× the rest of the project. The batch task listens on no ports, so there's nothing to reach.
 
 ---
@@ -78,37 +71,60 @@ Target cost: under $0.50/month. Everything is Terraform.
 
 ## Where I am right now
 
-## Where I am right now
+*Last updated: Friday, Sep 18, 2026 — end of Week 2*
 
-*Last updated: Sunday, Sep 13, 2026 — end of Week 1*
+**Status:** Phase 1 complete except T1.6 (quality gates). T1.1–T1.5 shipped
+and pushed; 34 tests passing. Starting T1.6 on Monday Sep 21.
 
-**Status:** setup complete, no code written yet. Starting T1.1 on Monday Sep 14.
+**Schedule:** timeline extended one week to **Oct 12**. Phase 3 dropped
+Sep 15 and stays dropped — the extra week is buffer for Phase 4, not
+recovered scope. No work on Saturdays (except Oct 10), Sun Sep 20, or
+Sun Oct 4. Long blocks: Sun Sep 27, Sat Oct 10, Sun Oct 11.
 
-**Schedule:** about one week behind the original plan. Week 1 went to prerequisites and an unplanned cleanup of five old projects instead of T1.1–T1.5. Phase 1 shifts to Week 2; Prerequisites §8 already identifies Phase 3 tuning as the work to drop if the slip compounds.
+- Phase 2: Sep 21–27 (T1.6 Monday, then T2.1–T2.3; T2.4 skipped)
+- Phase 4: Sep 28 – Oct 11
+- Oct 12: buffer
 
-**Ready:**
-- AWS account `419741995620`, IAM user `kristin-admin`, region target `us-east-1`
-- $120 credits, $0.00 spent, $2 budget with alerts, Free plan ends Mar 10 2027
-- Kaggle token reissued after a leaked key was found in the v1 repo; now at `~/.kaggle/kaggle.json`
-- Python 3.11+, git, 95 GB free disk
-- `movie-rec-system-v2` cloned locally, containing `IMPLEMENTATION_GUIDE.md`, `HANDOFF.md`, `docs/v1_review.md`, `notes/`
-- Claude Code tested against the repo
+**Numbers from the real data** (full detail in `docs/schema.md`):
+- 1,495,113 rows ingested; 77,281 in catalog; 772,810 neighbour rows
+- Keyword coverage 85.5% at `vote_count >= 50`, median 5; random-baseline
+  Jaccard 0.0027. Keywords confirmed as the held-out label
+- No collection column, so T2.4 franchise recall is skipped — Keyword
+  Jaccard@10 is the only held-out metric, with no fallback
+- Full-catalog run: **112s, 3.05 GiB peak** — inside the 4 GiB Fargate
+  budget after fixing a float64 similarity block that first pushed it to
+  6.27 GiB. The embedder is now the tallest step at 3.07 GiB, so Word2Vec
+  has about 1 GiB of headroom
 
-**Not yet installed** (not needed until Phase 4): Docker, AWS CLI, Terraform.
+**Environment:**
+- venv `movie_rec_venv/` on Python 3.12.5; container base is
+  `python:3.12-slim` to match
+- Claude Code set up with `CLAUDE.md` at the repo root; runs in
+  accept-edits mode, one task per session
+- AWS: $0.00 spent, $120 credits, $2 budget alert, Free plan ends
+  Mar 10 2027. Docker, AWS CLI, Terraform still not installed — not needed
+  until Phase 4
 
-**Check these before the first Claude Code session:**
-1. Delete `+ keywords` from the first line of T1.3's "Document text" — it contradicts the note directly below and would make Keyword Jaccard circular
-2. conda `base` auto-activates in every shell; the guide assumes plain `python3 -m venv`
+**Open items for Monday:**
+1. T1.6 — every gate needs a deliberately failing test, including the
+   no-baseline skip for `row_count_drift_pct`
+2. Confirm the T1.5 spot check is in `docs/comparison.md`
+3. Claude Code has committed on its own three times with drifting
+   messages — decide whether `CLAUDE.md` should forbid `git commit`
 
-**First action Monday:** `.gitignore` as the very first file in the very first commit, including `notes/`. Then T1.1.
+**Deferred, with a home:** `movierec/pipeline.py` is empty and gets written
+in Phase 4 for the Fargate entry point; UTC vs local `run_date` and
+dependency pinning are Phase 4 decisions; the 262-row demo catalog is
+revisited at T4.6.
 
-**Reference:** `docs/v1_review.md` holds what carries over from v1 — cleaning rules for T1.3, frontend and API contract for T4.4.
+**Reference:** `docs/week2_summary.md` for this week in full, §9 of the
+implementation.md for every deviation from spec.
 
 ---
 
 ## How I want you to work with me
 
-- The implementation guide is the source of truth. One `T#.#` task per session. Don't skip ahead of a task's dependencies.
+- The implementation.md is the source of truth. One `T#.#` task per session. Don't skip ahead of a task's dependencies.
 - If reality contradicts the spec — a column is missing, a count is off — update the guide and log it under §9 Deviations rather than working around it silently.
 - Explain cloud concepts when they come up. I'd rather understand the thing than have it work.
 - Push back if I'm over-engineering. That's the mistake that produced v1.

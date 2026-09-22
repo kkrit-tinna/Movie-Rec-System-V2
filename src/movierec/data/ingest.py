@@ -102,7 +102,14 @@ def prepare(df: pd.DataFrame, catalog_config: dict | None = None) -> pd.DataFram
     if catalog_config["exclude_adult"]:
         mask &= ~df["adult"].fillna(False)
 
-    return df[mask].reset_index(drop=True)
+    catalog = df[mask].reset_index(drop=True)
+    catalog = (
+        catalog.sort_values("vote_count", ascending=False)
+        .drop_duplicates(subset="id", keep="first")
+        .sort_index()
+        .reset_index(drop=True)
+    )
+    return catalog
 
 
 def main() -> None:

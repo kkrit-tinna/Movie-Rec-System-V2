@@ -12,6 +12,7 @@ CATALOG_CONFIG = {
 
 def _movie(**overrides):
     row = {
+        "id": 1,
         "title": "The Movie",
         "tagline": "A tagline",
         "overview": "An overview long enough to pass the filter.",
@@ -74,6 +75,12 @@ class TestPrepare:
         df = pd.DataFrame([_movie()])
         out = prepare(df, CATALOG_CONFIG)
         assert len(out) == 1
+
+    def test_dedup_on_id_keeps_highest_vote_count_row(self):
+        df = pd.DataFrame([_movie(id=1, vote_count=50), _movie(id=1, vote_count=20)])
+        out = prepare(df, CATALOG_CONFIG)
+        assert len(out) == 1
+        assert out.loc[0, "vote_count"] == 50
 
 
 class TestDownload:

@@ -15,3 +15,14 @@ tfidf:
 index:
   k: 10
   chunk_size: 2000
+
+quality:
+  row_count_min: 1300000
+  row_count_drift_pct: 15
+  catalog_count_min: 70000
+  null_rate_max:
+    title: 0.001
+    overview: 0.60
+  duplicate_id_rate_max: 0.0
+  embedding_nan_rate_max: 0.0
+  zero_vector_rate_max: 0.02

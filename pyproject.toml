@@ -10,6 +10,7 @@ dependencies = [
     "pyarrow",
     "pyyaml",
     "kaggle",
+    "gensim",
 ]
 
 [project.optional-dependencies]

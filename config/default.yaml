@@ -12,6 +12,14 @@ tfidf:
   sublinear_tf: true
   stop_words: english
 
+word2vec:
+  # Local KeyedVectors file, loaded with mmap. Preferred when set; the env var
+  # MOVIEREC_WORD2VEC_MODEL_PATH overrides it. Phase 4 bakes the model into
+  # the container image and sets this path.
+  model_path: null
+  # gensim downloader fallback, used only when no model_path is set.
+  model_name: glove-wiki-gigaword-100
+
 index:
   k: 10
   chunk_size: 2000

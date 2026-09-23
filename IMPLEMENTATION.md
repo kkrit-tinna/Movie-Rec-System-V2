@@ -559,3 +559,11 @@ Append here whenever reality differs. Date, task ID, what changed, why (one line
   casting to float32 before the matmul and chunk_size 5000 → 2000 — full
   chain now 3.05 GiB and 112s, down from 127s. §7 stays at 4 GiB; no model
   change. Timeline extended to Oct 12; Phase 3 stays dropped.
+- 2026-09-22 — T2.1 done. 18 new tests, suite at 77 (was 59). §5 artifact
+  estimate corrected to ~15.5 MB. Median-IDF fallback is 53% on the 262-row
+  sample, from min_df: 3. Should be far lower on the full catalog — VERIFY
+  IN T2.2. If it stays high, the IDF weighting is barely doing anything.
+  Hyphenated tokens split by the shared TF-IDF tokeniser (sci-fi → sci, fi).
+  Measured on 20K docs: 4,681 forms, 1,795 in GloVe, top is "year-old" at
+  505, most compositional. Under 1% of tokens, kept as-is. Hyphen-aware
+  tokeniser is a T2.2 variant only if Word2Vec underperforms unexplainably.

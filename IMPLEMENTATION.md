@@ -326,8 +326,7 @@ Run the full pipeline on the complete dataset locally. Record wall time and peak
 
 Use `gensim`. **Start with `glove-wiki-gigaword-100` (~130 MB), not `GoogleNews-vectors-negative300` (3.6 GB).** The GoogleNews model will not fit in the Fargate task alongside the corpus, and downloading it weekly is wasteful. If the comparison later shows the larger model is meaningfully better, that becomes a documented trade-off rather than a default.
 
-Document vector = **IDF-weighted mean** of its word vectors, reusing the IDF weights from the fitted TF-IDF. A plain mean drowns the signal in stopword-adjacent words, and the weighted version is a stronger baseline for an honest comparison. L2-normalise, then store as `float16` — halves the artifact to ~600 MB at 930K rows with no measurable effect on ranking.
-
+Document vector = **IDF-weighted mean** of its word vectors, reusing the IDF weights from the fitted TF-IDF. A plain mean drowns the signal in stopword-adjacent words, and the weighted version is a stronger baseline for an honest comparison. L2-normalise, then store as `float16` — halves the artifact to ~23 MB for the full run directory at 77,281 rows (15.5 MB matrix.npy plus neighbours.parquet, embedder.json, row_index.parquet).
 **Done when:** `pytest tests/test_word2vec.py` passes, including OOV handling (a document where no token is in the vocabulary must return a zero vector, not raise).
 
 ---
@@ -337,6 +336,8 @@ Document vector = **IDF-weighted mean** of its word vectors, reusing the IDF wei
 **Commit:** `feat: embedding-comparison-framework`
 
 `eval/metrics.py` runs any list of embedders over the same catalog and produces one row per method. This is the file that makes the project a comparison rather than two scripts.
+
+**Done when:** `python -m movierec.eval --sample` runs both embedders over the same catalog and writes one row per method to `artifacts/comparison/{run_date}/comparison.json`, each row carrying `method`, `catalog_size`, `fit_seconds`, `peak_rss_mb`, `artifact_mb`, `oov_rate`, `median_idf_fallback_rate`. `pytest tests/test_metrics.py` passes.
 
 ---
 
@@ -559,6 +560,13 @@ Append here whenever reality differs. Date, task ID, what changed, why (one line
   casting to float32 before the matmul and chunk_size 5000 → 2000 — full
   chain now 3.05 GiB and 112s, down from 127s. §7 stays at 4 GiB; no model
   change. Timeline extended to Oct 12; Phase 3 stays dropped.
+- 2026-09-21 — T1.6 done. 24 quality tests, suite at 59. Raw file has
+  1,356 duplicate IDs (458 exact, 898 differing); catalog had 0 only by
+  luck of the filters. Explicit dedup added to prepare() after the filters,
+  keeping max vote_count, original order preserved. duplicate_id_rate gate
+  runs on the catalog, threshold 0.0. quality block was missing from
+  default.yaml, added from §4. quality_report.json at
+  artifacts/quality/{run_date}/.
 - 2026-09-22 — T2.1 done. 18 new tests, suite at 77 (was 59). §5 artifact
   estimate corrected to ~15.5 MB. Median-IDF fallback is 53% on the 262-row
   sample, from min_df: 3. Should be far lower on the full catalog — VERIFY
@@ -567,3 +575,18 @@ Append here whenever reality differs. Date, task ID, what changed, why (one line
   Measured on 20K docs: 4,681 forms, 1,795 in GloVe, top is "year-old" at
   505, most compositional. Under 1% of tokens, kept as-is. Hyphen-aware
   tokeniser is a T2.2 variant only if Word2Vec underperforms unexplainably.
+- 2026-09-23 — T2.2 done. §5 had no Done-when; added. Suite at 96 (was
+  77). compute_neighbours crashed on dense float16 (.tocsr/.todense are
+  sparse-only); dense branch added, sparse path unchanged, 3 tests verified
+  against the old code. BaseEmbedder gained coverage_stats() (None by
+  default) so the runner stays method-agnostic; fit() now takes movie_ids.
+  psutil added: ru_maxrss is process-lifetime, so per-method peak RSS needs
+  a sampler (10ms). Full catalog, 77,281 rows, 148s: tfidf peak 2,969 MB /
+  artifact 34.2 MB / fit 4.6s; word2vec peak 2,028 MB / artifact 23.1 MB /
+  fit 16.7s / oov 1.4%. /usr/bin/time agrees within 0.4%. Median-IDF
+  fallback RESOLVED: 4.3% full-catalog vs 52.6% on the 262-row sample —
+  min_df: 3 was the sample artifact, the weighting is doing real work.
+  §5's ~600 MB corrected to the measured ~23 MB. Word2Vec fit_seconds is
+  mostly GloVe load; will shrink when Phase 4 sets a mmap model_path.
+  Same-day sample and full runs share {method}/{run_date}/ and overwrite —
+  worked around manually, run_date semantics deferred to Phase 4.

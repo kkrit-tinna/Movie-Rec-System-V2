@@ -106,6 +106,29 @@ class Word2VecEmbedder(BaseEmbedder):
             return np.zeros(kv.vector_size, dtype=np.float32)
         return mean / norm
 
+    def coverage_stats(self, texts: list[str]) -> dict[str, float | None]:
+        """Token-level coverage over `texts`, counted with the shared analyser.
+
+        oov_rate: share of all tokens with no GloVe vector (dropped from the
+        mean). median_idf_fallback_rate: share of the in-GloVe tokens -- the
+        ones that are actually averaged -- missing from the IDF map, so
+        weighted by the median IDF instead of their own. None if there is
+        nothing to divide by.
+        """
+        kv = self.keyed_vectors
+        total = in_vocab = fallback = 0
+        for text in texts:
+            for token in self._analyser(text):
+                total += 1
+                if token in kv.key_to_index:
+                    in_vocab += 1
+                    if token not in self.idf:
+                        fallback += 1
+        return {
+            "oov_rate": (total - in_vocab) / total if total else None,
+            "median_idf_fallback_rate": fallback / in_vocab if in_vocab else None,
+        }
+
     def fit(self, texts: list[str], movie_ids: list) -> None:
         if len(texts) != len(movie_ids):
             raise ValueError("texts and movie_ids must be the same length")

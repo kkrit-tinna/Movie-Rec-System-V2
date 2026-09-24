@@ -39,7 +39,7 @@ def _top_k_for_row(sim_row: np.ndarray, self_idx: int, k: int) -> tuple[np.ndarr
 
 
 def compute_neighbours(
-    matrix: sp.spmatrix,
+    matrix: sp.spmatrix | np.ndarray,
     movie_ids: list,
     k: int | None = None,
     chunk_size: int | None = None,
@@ -49,6 +49,11 @@ def compute_neighbours(
     Rows are L2-normalised here (idempotent if already normalised, as
     TfidfVectorizer's default output is) so that a plain dot product
     between rows equals cosine similarity.
+
+    Sparse input (TF-IDF) and dense input (Word2Vec, float16) take separate
+    paths: .tocsr() and .todense() exist only on sparse matrices. Dense input
+    is cast to float32 before the matmul for the same memory reason as the
+    sparse path, and because numpy has no BLAS path for float16.
     """
     config = _load_index_config()
     k = k if k is not None else config["k"]
@@ -58,13 +63,21 @@ def compute_neighbours(
     movie_ids = np.asarray(movie_ids)
     # float32 before the matmul, not after -- casting a float64 dense block
     # down to float32 still pays the float64 block's peak memory first.
-    normed = normalize(matrix, norm="l2", axis=1).astype(np.float32).tocsr()
-    normed_t = normed.T.tocsr()
+    is_sparse = sp.issparse(matrix)
+    if is_sparse:
+        normed = normalize(matrix, norm="l2", axis=1).astype(np.float32).tocsr()
+        normed_t = normed.T.tocsr()
+    else:
+        normed = normalize(np.asarray(matrix, dtype=np.float32), norm="l2", axis=1)
+        normed_t = normed.T
 
     records = []
     for start in range(0, n, chunk_size):
         end = min(start + chunk_size, n)
-        chunk_sim = np.asarray((normed[start:end] @ normed_t).todense(), dtype=np.float32)
+        if is_sparse:
+            chunk_sim = np.asarray((normed[start:end] @ normed_t).todense(), dtype=np.float32)
+        else:
+            chunk_sim = normed[start:end] @ normed_t
 
         for local_i in range(end - start):
             global_i = start + local_i

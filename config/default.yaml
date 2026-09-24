@@ -24,6 +24,10 @@ index:
   k: 10
   chunk_size: 2000
 
+eval:
+  # Peak-RSS sampling interval for the comparison harness (T2.2).
+  rss_sample_seconds: 0.01
+
 quality:
   row_count_min: 1300000
   row_count_drift_pct: 15

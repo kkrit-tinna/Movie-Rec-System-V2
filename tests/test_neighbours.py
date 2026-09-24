@@ -62,3 +62,34 @@ class TestComputeNeighbours:
         # config/default.yaml sets k: 10 -- with only 5 rows, k is capped at n-1.
         df = compute_neighbours(_matrix(), MOVIE_IDS)
         assert (df.groupby("movie_id").size() == 4).all()
+
+
+class TestDenseInput:
+    """Word2Vec hands over a dense float16 ndarray, not a sparse matrix."""
+
+    def test_dense_float16_runs(self):
+        dense = _matrix().toarray().astype(np.float16)
+        df = compute_neighbours(dense, MOVIE_IDS, k=2, chunk_size=2)
+        assert (df.groupby("movie_id").size() == 2).all()
+        assert not (df["movie_id"] == df["neighbour_id"]).any()
+        assert df["score"].dtype == np.float64
+
+    def test_dense_float16_matches_sparse(self):
+        sparse_df = compute_neighbours(_matrix(), MOVIE_IDS, k=2, chunk_size=2)
+        dense_df = compute_neighbours(
+            _matrix().toarray().astype(np.float16), MOVIE_IDS, k=2, chunk_size=2
+        )
+        key = ["movie_id", "rank"]
+        sparse_df = sparse_df.sort_values(key).reset_index(drop=True)
+        dense_df = dense_df.sort_values(key).reset_index(drop=True)
+        # Exact ties (e.g. 0.0 scores) may order differently; compare scores.
+        np.testing.assert_allclose(dense_df["score"], sparse_df["score"], atol=1e-3)
+        top = dense_df[(dense_df["movie_id"] == 100) & (dense_df["rank"] == 1)]
+        assert top["neighbour_id"].item() == 200
+
+    def test_zero_row_does_not_crash(self):
+        # A fully-OOV Word2Vec document is a zero vector.
+        dense = _matrix().toarray().astype(np.float16)
+        dense[4] = 0
+        df = compute_neighbours(dense, MOVIE_IDS, k=2, chunk_size=5)
+        assert np.isfinite(df["score"]).all()

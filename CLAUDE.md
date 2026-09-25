@@ -1,6 +1,6 @@
 # movierec v2
 Content-based movie recommender. Batch job precomputes top-10 neighbours;
-serving is a key lookup. `IMPLEMENTATION_GUIDE.md` is the source of truth —
+serving is a key lookup. `IMPLEMENTATION.md` is the source of truth —
 read the relevant `T#.#` block before starting work.
 
 ## Session rules

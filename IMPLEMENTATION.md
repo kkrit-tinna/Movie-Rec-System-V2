@@ -337,7 +337,7 @@ Document vector = **IDF-weighted mean** of its word vectors, reusing the IDF wei
 
 `eval/metrics.py` runs any list of embedders over the same catalog and produces one row per method. This is the file that makes the project a comparison rather than two scripts.
 
-**Done when:** `python -m movierec.eval --sample` runs both embedders over the same catalog and writes one row per method to `artifacts/comparison/{run_date}/comparison.json`, each row carrying `method`, `catalog_size`, `fit_seconds`, `peak_rss_mb`, `artifact_mb`, `oov_rate`, `median_idf_fallback_rate`. `pytest tests/test_metrics.py` passes.
+**Done when:** `python -m movierec.eval --compare --sample` runs both embedders over the same catalog and writes one row per method to `artifacts/comparison/{run_date}/comparison.json`, each row carrying `method`, `catalog_size`, `fit_seconds`, `peak_rss_mb`, `artifact_mb`, `oov_rate`, `median_idf_fallback_rate`. `pytest tests/test_metrics.py` passes.
 
 ---
 
@@ -355,7 +355,7 @@ Three metrics, evaluated on a fixed sample of **2,000 query movies** with `vote_
 
 Also record a **random baseline** for both accuracy metrics. A number without a floor is not a result, and "TF-IDF scores 0.31" means nothing until the reader knows random scores 0.04.
 
-**Done when:** `python -m movierec.eval --sample` writes `metrics.json` containing all five methods-columns (tfidf, word2vec, random) × three metrics.
+**Done when:** `python -m movierec.eval --sample` writes `metrics.json` containing all three methods (tfidf, word2vec, random) × three metrics.
 
 ---
 
@@ -590,3 +590,12 @@ Append here whenever reality differs. Date, task ID, what changed, why (one line
   mostly GloVe load; will shrink when Phase 4 sets a mmap model_path.
   Same-day sample and full runs share {method}/{run_date}/ and overwrite —
   worked around manually, run_date semantics deferred to Phase 4.
+- 2026-09-24 — T2.3 done. 21 new tests, suite at 117 (was 96). Metrics
+  score an existing run, never refit: `python -m movierec.eval` now scores
+  (--run-date, default latest on disk); T2.2's refit moved behind
+  --compare. Query set is min(2000, eligible); --sample gives 98 and
+  warns. Queries with no keywords are SKIPPED, not zeroed (1,710 of 2,000
+  scored). Latency = dict lookup of a precomputed list, ~100 ns for every
+  method. Full 2026-09-23 run: keyword Jaccard@10 tfidf 0.0376, word2vec
+  0.0241, random 0.0025 (T1.1: 0.0027); genre P@10 0.717 / 0.728 / 0.391.
+  Written to comparison/{run_date}/metrics.json.

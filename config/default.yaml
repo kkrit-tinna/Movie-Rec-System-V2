@@ -27,6 +27,12 @@ index:
 eval:
   # Peak-RSS sampling interval for the comparison harness (T2.2).
   rss_sample_seconds: 0.01
+  # Accuracy query set (T2.3): up to n_queries movies with vote_count >=
+  # query_min_vote_count, drawn with this seed. The random baseline uses the
+  # same seed on a separate stream.
+  n_queries: 2000
+  query_min_vote_count: 50
+  seed: 42
 
 quality:
   row_count_min: 1300000

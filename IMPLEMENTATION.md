@@ -599,3 +599,15 @@ Append here whenever reality differs. Date, task ID, what changed, why (one line
   method. Full 2026-09-23 run: keyword Jaccard@10 tfidf 0.0376, word2vec
   0.0241, random 0.0025 (T1.1: 0.0027); genre P@10 0.717 / 0.728 / 0.391.
   Written to comparison/{run_date}/metrics.json.
+- 2026-09-25 — Buffer day; no task. Phase 4 toolchain installed: Docker
+  28.0.4, AWS CLI 2.37.3, Terraform 1.16.4. Homebrew could not build awscli
+  or terraform — Command Line Tools too old for source builds on Sonoma
+  (23.6.0). Both installed from official binaries instead: AWS CLI via
+  AWSCLIV2.pkg, Terraform from releases.hashicorp.com to /usr/local/bin.
+  Terraform upgrades are therefore a manual re-download, not `brew upgrade`.
+  Homebrew also no longer carries terraform in core (HashiCorp licence
+  change); hashicorp/tap exists but hits the same compiler wall. IAM user
+  movierec-dev created with AdministratorAccess (least-privilege is a T4.1
+  refinement); aws configure set to us-east-1. Spend $0.00.
+  Deferred: Command Line Tools update; Fargate is amd64 so T4.3 builds need
+  --platform linux/amd64 on Apple Silicon.

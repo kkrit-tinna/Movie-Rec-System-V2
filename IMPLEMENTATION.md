@@ -611,3 +611,16 @@ Append here whenever reality differs. Date, task ID, what changed, why (one line
   refinement); aws configure set to us-east-1. Spend $0.00.
   Deferred: Command Line Tools update; Fargate is amd64 so T4.3 builds need
   --platform linux/amd64 on Apple Silicon.
+  - 2026-09-27 — Comparison report written to `docs/comparison.md`:
+  table, two charts, decision paragraph. TF-IDF ships as default
+  (Keyword Jaccard@10 0.0376 vs 0.0241, 15× the 0.0025 random floor;
+  also faster to fit, 11 MB larger on disk). §5's second chart, latency
+  vs accuracy, is degenerate, it was replaced with cost vs accuracy (fit_seconds and artifact_mb against Jaccard). 
+  T1.5 spot check backfilled nine days late; §5's Done-when
+  asks for the 262-row sample but Inception/Godfather/Toy Story are not
+  in a 262-row catalog, so the three were taken from the 2026-09-23
+  full-catalog run and the heading updated to match. Inception's
+  neighbours are visibly weaker than the other two — noted in the report
+  rather than hidden. §3 line 155 still says comparison.md is "written
+  by T2.5"; no such task exists. `docs/week3_summary.md` written,
+  HANDOFF.md "Where I am right now" rewritten. Phase 2 closed.

@@ -32,3 +32,10 @@ dist/
 
 # Profiling scratch
 run_*.log
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+*.tfvars

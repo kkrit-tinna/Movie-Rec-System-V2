@@ -60,7 +60,8 @@ exactly 85.5% — three independent confirmations the metric measures what it
 claims. Suite: 117.
 
 ### Fri — Phase 4 toolchain (buffer day)
-Docker 28.0.4, AWS CLI 2.37.3, Terraform 1.16.4. Homebrew could not build
+Docker 28.0.4, AWS CLI 2.37.3, Terraform 1.13.3 (first logged as 1.16.4;
+upgraded to 1.16.4 on Sep 28). Homebrew could not build
 either CLI — Command Line Tools too old for source builds on Sonoma — so
 both came from official binaries. IAM user `movierec-dev` created,
 `aws configure` set to us-east-1, spend $0.00.

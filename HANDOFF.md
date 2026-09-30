@@ -67,13 +67,10 @@ Target cost: under $0.50/month. Everything is Terraform.
 
 *Last updated: Sunday, Sep 27, 2026 — end of Week 3*
 
-**Status:** Phases 1 and 2 complete. 117 tests passing. TF-IDF chosen as
-the default embedder. Phase 4 toolchain installed. AWS spend $0.00.
-Starting T4.1 on Monday Sep 28.
+**Status:** T4.1 done, T4.2 next on Wed Sep 30, and the TF-IDF default moved to T4.3. Add one new open item: T4.2 needs a terraform apply first. I just destroyed everything, and S3Store's tests need a real bucket to run against.
 
 **Schedule:** deadline **Oct 12**. Phase 3 dropped Sep 15 and stays
-dropped. No work Saturdays except Oct 10, or Sun Oct 4. Remaining long
-blocks: Sat Oct 10, Sun Oct 11.
+dropped. No work Saturdays except Oct 10. Remaining long blocks: Sat Oct 10, Sun Oct 11.
 
 - Phase 4: Sep 28 – Oct 11
 - Oct 12: buffer
@@ -101,7 +98,8 @@ disadvantage is 11 MB more on disk.
   `python:3.12-slim`
 - Claude Code with `CLAUDE.md` at the repo root; accept-edits mode, one
   task per session, never runs `git commit`
-- Docker 28.0.4, AWS CLI 2.37.3, Terraform 1.16.4. Homebrew could not
+- Docker 28.0.4, AWS CLI 2.37.3, Terraform 1.16.4 (1.13.3 until Sep 28;
+  the Sep 25 install was logged wrong). Homebrew could not
   build the CLIs (Command Line Tools too old for source builds on
   Sonoma) — both installed from official binaries, so Terraform upgrades
   are a manual re-download

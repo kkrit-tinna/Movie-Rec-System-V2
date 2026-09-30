@@ -421,7 +421,7 @@ Write the runbook: how to trigger a run manually, how to roll back `current.json
 
 ## 7. Phase 4 — AWS (Week 4, Sep 28 – Oct 11)
 
-**Before T4.1:** create the AWS account choosing the **Paid plan** (credits still apply; the account will not close when they run out), enable MFA on root, create an IAM admin user, and set a **$2 budget alert**.
+**Before T4.1:** create the AWS account (this project uses the **Free plan** — see §9 2026-09-28; the Free plan ends 2027-03-10, after which the account must be upgraded to Paid to keep running), enable MFA on root, create an IAM admin user, and set a **$2 budget alert**.
 
 ### T4.1 — Terraform base
 **Commit:** `feat: terraform-base-infra`
@@ -432,7 +432,7 @@ Write the runbook: how to trigger a run manually, how to roll back `current.json
 - DynamoDB table `movies`, PK `movie_id` (String), **on-demand** billing
 - ECR repositories for both images, with a lifecycle policy keeping the last 5 tags
 - IAM task role scoped to that one bucket and that one table — no wildcards
-- Default VPC public subnet, security group with egress only
+- Subnets, security group with egress only
 
 **Done when:** `terraform plan` is clean, and `terraform apply && terraform destroy` round-trips without manual console cleanup.
 
@@ -600,18 +600,17 @@ Append here whenever reality differs. Date, task ID, what changed, why (one line
   0.0241, random 0.0025 (T1.1: 0.0027); genre P@10 0.717 / 0.728 / 0.391.
   Written to comparison/{run_date}/metrics.json.
 - 2026-09-25 — Buffer day; no task. Phase 4 toolchain installed: Docker
-  28.0.4, AWS CLI 2.37.3, Terraform 1.16.4. Homebrew could not build awscli
-  or terraform — Command Line Tools too old for source builds on Sonoma
-  (23.6.0). Both installed from official binaries instead: AWS CLI via
+  28.0.4, AWS CLI 2.37.3, Terraform 1.13.3 (logged here as 1.16.4; see
+  2026-09-28). Homebrew could not build awscli or terraform — Command Line Tools too old for source builds on Sonoma (23.6.0). 
+  Both installed from official binaries instead: AWS CLI via
   AWSCLIV2.pkg, Terraform from releases.hashicorp.com to /usr/local/bin.
   Terraform upgrades are therefore a manual re-download, not `brew upgrade`.
   Homebrew also no longer carries terraform in core (HashiCorp licence
   change); hashicorp/tap exists but hits the same compiler wall. IAM user
-  movierec-dev created with AdministratorAccess (least-privilege is a T4.1
-  refinement); aws configure set to us-east-1. Spend $0.00.
+  movierec-dev created with AdministratorAccess (deferred to Oct.12); aws configure set to us-east-1. Spend $0.00.
   Deferred: Command Line Tools update; Fargate is amd64 so T4.3 builds need
   --platform linux/amd64 on Apple Silicon.
-  - 2026-09-27 — Comparison report written to `docs/comparison.md`:
+- 2026-09-27 — Comparison report written to `docs/comparison.md`:
   table, two charts, decision paragraph. TF-IDF ships as default
   (Keyword Jaccard@10 0.0376 vs 0.0241, 15× the 0.0025 random floor;
   also faster to fit, 11 MB larger on disk). §5's second chart, latency
@@ -624,3 +623,18 @@ Append here whenever reality differs. Date, task ID, what changed, why (one line
   rather than hidden. §3 line 155 still says comparison.md is "written
   by T2.5"; no such task exists. `docs/week3_summary.md` written,
   HANDOFF.md "Where I am right now" rewritten. Phase 2 closed.
+- 2026-09-28 - T4.1 split into 4.1a (S3/DynamoDB/ECR, plan only) and 4.1b (IAM/network, apply+destroy). There is still one commit, made at the end of 4.1b.
+  Terraform was 1.13.3, not the 1.16.4 logged on 09-25, so `~> 1.16`
+  failed init. Cause: /usr/local/bin/terraform itself was 1.13.3 and the
+  only terraform on PATH (no Homebrew copy exists), so the 09-25 download
+  was the wrong release or was misrecorded; which one is unknown.
+  Replaced with 1.16.4 today. S3 lifecycle: §7's `artifacts/*` became the
+  prefix `artifacts/` (S3 filters take no globs). Noncurrent-version
+  expiry after 7 days and abort-incomplete-multipart-upload after 1 day go
+  beyond §7, which asks only for 60-day expiry.
+- 2026-09-28  T4.1a done: `terraform plan` → 9 to add; forbidden-resource grep empty.
+  T4.1b (IAM task role, default-VPC data sources, egress-only SG, apply && destroy, single commit) scheduled for 2026-09-29. ECS execution
+  role deferred to T4.3 with the task definition. Account stays on the Free plan, not §7's Paid plan; §7 updated. 
+  Setting TF-IDF as default in config/default.yaml moved to T4.3, where pipeline.py first reads it.
+  Versioned-bucket expiry leaves zero-byte delete markers under artifacts/; negligible cost, accepted.
+- 2026-09-29  T4.1b done; plan showed 13 to add; apply and destroy round-tripped with no console cleanup; subnets are plural, not §7's singular; T4.1 complete.

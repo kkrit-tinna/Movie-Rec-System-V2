@@ -44,3 +44,11 @@ quality:
   duplicate_id_rate_max: 0.0
   embedding_nan_rate_max: 0.0
   zero_vector_rate_max: 0.02
+
+dynamo:
+  # DynamoWriter (T4.2b): resends of BatchWriteItem UnprocessedItems per
+  # batch, and the base of the exponential backoff (seconds; full jitter,
+  # sleep ~ U(0, base_delay * 2**attempt)). Env vars
+  # MOVIEREC_DYNAMO_MAX_RETRIES / MOVIEREC_DYNAMO_BASE_DELAY override.
+  max_retries: 8
+  base_delay: 0.1

@@ -65,15 +65,29 @@ Target cost: under $0.50/month. Everything is Terraform.
 
 ## Where I am right now
 
-*Last updated: Sunday, Sep 27, 2026 — end of Week 3*
+*Last updated: Friday, Oct 2, 2026 — Week 4*
 
-**Status:** T4.1 done, T4.2 next on Wed Sep 30, and the TF-IDF default moved to T4.3. Add one new open item: T4.2 needs a terraform apply first. I just destroyed everything, and S3Store's tests need a real bucket to run against.
+**Status:** Phases 1 and 2 complete. T4.1 (`feat: terraform-base-infra`)
+and T4.2 (`feat: s3-store-and-dynamo-writer`) committed. 144 tests
+passing. Infrastructure is live in us-east-1 (13 resources) and stays up.
+Both stores smoke-tested against real AWS: S3 put/get/list/404, and
+DynamoDB write → get-item → delete for 3 movies.
 
-**Schedule:** deadline **Oct 12**. Phase 3 dropped Sep 15 and stays
-dropped. No work Saturdays except Oct 10. Remaining long blocks: Sat Oct 10, Sun Oct 11.
+**Spend:** $0.01 total (one Cost Explorer API call); infrastructure
+$0.00; credits $119.99. Measured DynamoDB items: max 968 bytes, average
+779, so 1 write unit each. A full 77,281-item load is about $0.05 per
+run, roughly $0.20/month weekly. Revisit §2's cost target after a week
+of real runs.
 
-- Phase 4: Sep 28 – Oct 11
-- Oct 12: buffer
+**Schedule:** deadline **Oct 12**. Oct 1 was skipped; T4.2b moved to
+Oct 2.
+- Mon Oct 5 – Tue Oct 6: T4.3 batch container (split a/b)
+- Wed Oct 7 – Thu Oct 8: T4.4 API
+- Fri Oct 9: T4.5 schedule + alerting
+- Sat Oct 10: T4.6 `make demo` + README
+- Sun Oct 11: T4.7 runbook + Week 4 summary
+- Mon Oct 12: buffer
+No work Sat Oct 3 or Sun Oct 4.
 
 **The embedder decision** (full report in `docs/comparison.md`):
 TF-IDF ships. Keyword Jaccard@10 of 0.0376 against Word2Vec's 0.0241 — a
@@ -96,8 +110,6 @@ disadvantage is 11 MB more on disk.
 **Environment:**
 - venv `movie_rec_venv/` on Python 3.12.5; container base
   `python:3.12-slim`
-- Claude Code with `CLAUDE.md` at the repo root; accept-edits mode, one
-  task per session, never runs `git commit`
 - Docker 28.0.4, AWS CLI 2.37.3, Terraform 1.16.4 (1.13.3 until Sep 28;
   the Sep 25 install was logged wrong). Homebrew could not
   build the CLIs (Command Line Tools too old for source builds on
@@ -107,21 +119,27 @@ disadvantage is 11 MB more on disk.
   $2 budget alert, Free plan ends Mar 10 2027
 - GloVe at `~/glove/glove-100d.kv`; `MOVIEREC_WORD2VEC_MODEL_PATH` in
   `.env`
+- boto3 and moto added.
 
-**Open items for Monday:**
-1. Set TF-IDF as the default method in `config/default.yaml` — the
-   decision currently exists only in prose
-2. T4.1 is the first task that spends money; `terraform apply` is the
-   line where an estimate becomes a bill
-3. Terraform state file goes in `.gitignore` before the first apply
+**Next: T4.3, which now also carries:**
+1. `pipeline.py`, the Fargate entry point (still empty)
+2. a STORAGE_BACKEND factory. None exists; the CLIs create LocalStore
+   directly
+3. TF-IDF set as the default method in `config/default.yaml`
+4. keeping or saving the catalog, which isn't written to artifacts/ but
+   the DynamoDB writer needs
+5. the ECS execution role, cluster, task definition and log group
+6. the first real test of the task role's IAM policy; the smoke tests ran
+   as movierec-dev with AdministratorAccess
+7. `--platform linux/amd64` builds (Fargate is amd64, the laptop is arm64)
 
 **Deferred, with a home:** `movierec/pipeline.py` is empty and gets
 written in Phase 4 for the Fargate entry point. `run_date` semantics —
 same-day sample and full runs share a folder and overwrite. UTC vs local
-`run_date`. Dependency pinning. Least-privilege IAM to replace
-`AdministratorAccess`. Fargate is amd64 and the laptop is arm64, so T4.3
-builds need `--platform linux/amd64`. The 262-row demo catalog is
-revisited at T4.6.
+`run_date`. Dependency pinning. least-privilege IAM for movierec-dev, until after Oct 12.
+Delete markers under artifacts/ accepted at negligible cost. 
+Dependency pinning. run_date semantics. The 262-row demo catalog (T4.6). 
+Fargate is amd64 and the laptop is arm64, so T4.3 builds need `--platform linux/amd64`. The 262-row demo catalog is revisited at T4.6.
 
 **Reference:** `docs/week3_summary.md` for this week in full, §9 of
 `IMPLEMENTATION.md` for every deviation from spec.

@@ -12,10 +12,11 @@ dependencies = [
     "kaggle",
     "gensim",
     "psutil",
+    "boto3",
 ]
 
 [project.optional-dependencies]
-dev = ["pytest", "matplotlib"]
+dev = ["pytest", "matplotlib", "moto[s3,dynamodb]"]
 
 [build-system]
 requires = ["setuptools>=68"]

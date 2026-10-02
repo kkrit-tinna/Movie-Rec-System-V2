@@ -1,23 +1,41 @@
+import boto3
 import pytest
+from moto import mock_aws
 
 from movierec.storage.local import LocalStore
 from movierec.storage.s3 import S3Store
 
-
-def _make_local(tmp_path):
-    return LocalStore(root=str(tmp_path / "artifacts"))
+TEST_BUCKET = "movierec-test-bucket"
 
 
-# T4.2 adds an "s3" entry here (backed by moto or similar) to run the same
-# suite against S3Store with no other changes to this file.
+def _make_local(tmp_path, monkeypatch):
+    yield LocalStore(root=str(tmp_path / "artifacts"))
+
+
+def _make_s3(tmp_path, monkeypatch):
+    # Fake credentials, set before any client exists, so nothing here can
+    # authenticate against real AWS even if the mock were bypassed.
+    monkeypatch.delenv("AWS_PROFILE", raising=False)
+    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "testing")
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "testing")
+    monkeypatch.setenv("AWS_SECURITY_TOKEN", "testing")
+    monkeypatch.setenv("AWS_SESSION_TOKEN", "testing")
+    monkeypatch.setenv("AWS_DEFAULT_REGION", "us-east-1")
+    with mock_aws():
+        client = boto3.client("s3", region_name="us-east-1")
+        client.create_bucket(Bucket=TEST_BUCKET)
+        yield S3Store(bucket=TEST_BUCKET, client=client)
+
+
 BACKENDS = {
     "local": _make_local,
+    "s3": _make_s3,
 }
 
 
 @pytest.fixture(params=list(BACKENDS))
-def store(request, tmp_path):
-    return BACKENDS[request.param](tmp_path)
+def store(request, tmp_path, monkeypatch):
+    yield from BACKENDS[request.param](tmp_path, monkeypatch)
 
 
 class TestArtifactStore:
@@ -58,17 +76,9 @@ class TestArtifactStore:
             store.get_bytes("nope.bin")
 
 
-def test_s3_store_stub_raises_not_implemented():
-    s3 = S3Store(bucket="dummy-bucket")
-    with pytest.raises(NotImplementedError):
-        s3.put_bytes("x", b"y")
-    with pytest.raises(NotImplementedError):
-        s3.get_bytes("x")
-    with pytest.raises(NotImplementedError):
-        s3.put_json("x", {})
-    with pytest.raises(NotImplementedError):
-        s3.get_json("x")
-    with pytest.raises(NotImplementedError):
-        s3.exists("x")
-    with pytest.raises(NotImplementedError):
-        s3.list("x")
+    def test_list_crosses_paginator_page_boundary(self, store):
+        # list_objects_v2 returns at most 1,000 keys per call.
+        expected = [f"many/{i:04d}.bin" for i in range(1001)]
+        for path in expected:
+            store.put_bytes(path, b"x")
+        assert store.list("many") == expected

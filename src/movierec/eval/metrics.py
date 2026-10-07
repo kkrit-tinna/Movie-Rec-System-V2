@@ -31,7 +31,7 @@ from movierec.embedders.tfidf import TfidfEmbedder
 from movierec.embedders.word2vec import Word2VecEmbedder
 from movierec.index.neighbours import compute_neighbours, save_neighbours
 from movierec.storage.base import ArtifactStore
-from movierec.storage.local import LocalStore
+from movierec.storage.factory import get_store
 
 CONFIG_PATH = Path(__file__).resolve().parents[3] / "config" / "default.yaml"
 SAMPLE_PATH = "data/sample/movies_5k.csv"
@@ -495,11 +495,15 @@ def main() -> None:
         help="run to score (default: most recent on disk for this catalog); "
         "with --compare, the run to write (default: today)",
     )
-    parser.add_argument("--storage-root", default="./artifacts", help="LocalStore root")
+    parser.add_argument(
+        "--storage-root",
+        default="./artifacts",
+        help="LocalStore root (ignored when STORAGE_BACKEND=s3)",
+    )
     args = parser.parse_args()
 
     catalog = prepare(load(SAMPLE_PATH if args.sample else RAW_PATH))
-    store = LocalStore(root=args.storage_root)
+    store = get_store(root=args.storage_root)
     (_compare if args.compare else _score)(args, catalog, store)
 
 

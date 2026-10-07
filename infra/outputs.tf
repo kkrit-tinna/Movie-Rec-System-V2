@@ -25,3 +25,15 @@ output "batch_security_group_id" {
 output "default_subnet_ids" {
   value = data.aws_subnets.default.ids
 }
+
+output "ecs_cluster_name" {
+  value = aws_ecs_cluster.this.name
+}
+
+output "batch_task_definition_arn" {
+  value = aws_ecs_task_definition.batch.arn
+}
+
+output "batch_log_group_name" {
+  value = aws_cloudwatch_log_group.batch.name
+}

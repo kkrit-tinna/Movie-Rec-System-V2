@@ -1,5 +1,7 @@
 import errno
 import json
+from pathlib import Path
+from urllib.parse import urlparse
 
 import boto3
 from botocore.exceptions import ClientError
@@ -77,3 +79,36 @@ class S3Store(ArtifactStore):
         if base in keys:
             return [prefix]
         return sorted(k for k in keys if k.startswith(base + "/"))
+
+
+def download_with_sidecars(uri: str, dest_dir: str, client=None) -> Path:
+    """Download s3://bucket/key plus every key that extends it, into dest_dir.
+
+    gensim saves large arrays next to the main file (glove-100d.kv ->
+    glove-100d.kv.vectors.npy) and loads them from the same directory, so the
+    family travels together. Streams to disk: the vectors are ~160 MB.
+    Returns the local path of the main file. Lives here because §3 allows
+    boto3 only under storage/.
+    """
+    parsed = urlparse(uri)
+    if parsed.scheme != "s3" or not parsed.netloc or not parsed.path.lstrip("/"):
+        raise ValueError(f"expected s3://bucket/key, got {uri!r}")
+    bucket, key = parsed.netloc, parsed.path.lstrip("/")
+    client = client if client is not None else boto3.client("s3")
+
+    keys = []
+    for page in client.get_paginator("list_objects_v2").paginate(Bucket=bucket, Prefix=key):
+        keys.extend(obj["Key"] for obj in page.get("Contents", []))
+    if key not in keys:
+        raise FileNotFoundError(errno.ENOENT, "No such key", uri)
+
+    dest = Path(dest_dir)
+    dest.mkdir(parents=True, exist_ok=True)
+    main_name = Path(key).name
+    for k in keys:
+        name = Path(k).name
+        # Only the file itself and its sidecars (same name + suffix), never
+        # e.g. glove-100d.kv2 picked up by the string prefix.
+        if name == main_name or name.startswith(main_name + "."):
+            client.download_file(bucket, k, str(dest / name))
+    return dest / main_name

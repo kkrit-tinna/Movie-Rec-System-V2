@@ -9,3 +9,9 @@ variable "project" {
   type        = string
   default     = "movierec"
 }
+
+variable "batch_image_tag" {
+  description = "Tag of the movierec-batch ECR image the task definition runs."
+  type        = string
+  default     = "t4.3-2026-10-07"
+}

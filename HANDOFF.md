@@ -65,29 +65,45 @@ Target cost: under $0.50/month. Everything is Terraform.
 
 ## Where I am right now
 
-*Last updated: Friday, Oct 2, 2026 — Week 4*
+*Last updated: Wednesday, Oct 7, 2026 — Week 5*
 
 **Status:** Phases 1 and 2 complete. T4.1 (`feat: terraform-base-infra`)
-and T4.2 (`feat: s3-store-and-dynamo-writer`) committed. 144 tests
-passing. Infrastructure is live in us-east-1 (13 resources) and stays up.
-Both stores smoke-tested against real AWS: S3 put/get/list/404, and
-DynamoDB write → get-item → delete for 3 movies.
+and T4.2 (`feat: s3-store-and-dynamo-writer`) committed. **T4.3 done**
+(one commit, `feat: fargate-batch-task`). Infrastructure is live in
+us-east-1 (20 managed resources + 6 data sources) and stays up. 161 tests.
 
-**Spend:** $0.01 total (one Cost Explorer API call); infrastructure
-$0.00; credits $119.99. Measured DynamoDB items: max 968 bytes, average
-779, so 1 write unit each. A full 77,281-item load is about $0.05 per
-run, roughly $0.20/month weekly. Revisit §2's cost target after a week
-of real runs.
+**What T4.3 delivered:** `pipeline.py` runs all 8 steps; arm64 image
+`movierec-batch:t4.3-2026-10-07` in ECR (246.5 MB compressed, a plain image
+manifest; build with `make image`, push with `make push-image TAG=...`,
+both without BuildKit attestations); ECS cluster `movierec`, task definition
+`movierec-batch:1` (ARM64, 2 vCPU / 4 GiB), Kaggle token from SSM, GloVe
+from `s3://<bucket>/models/`. The first full Fargate run is live: exit 0 in
+5.5 min, S3 run 2026-10-07, 77,281 items in DynamoDB, `current.json` →
+tfidf. The first attempt was OOM-killed at step 4; fixed by filtering
+before building documents in `prepare()` and `chunk_size` 1000 (peak
+2.58 GiB of 4, measured locally at `--memory=4g`; §9 2026-10-07).
 
-**Schedule:** deadline **Oct 12**. Oct 1 was skipped; T4.2b moved to
-Oct 2.
-- Mon Oct 5 – Tue Oct 6: T4.3 batch container (split a/b)
-- Wed Oct 7 – Thu Oct 8: T4.4 API
+**Spend:** today's run about $0.06 (Fargate ~$0.009, DynamoDB writes
+~$0.05, COUNT scans ~$0.002). §2's cost table now holds measured numbers:
+~$0.28/month weekly, DynamoDB the largest line; the "revisit §2 after real
+runs" item is resolved. **Check tomorrow's bill (Cost Explorer, Oct 7)
+against about $0.06.**
+
+**Schedule:** deadline **Oct 12**.
+- Wed Oct 7: T4.3b (ECR push + Fargate run) done, T4.3 closed
+- **Next: T4.4 API, Wed Oct 7 – Thu Oct 8**
 - Fri Oct 9: T4.5 schedule + alerting
 - Sat Oct 10: T4.6 `make demo` + README
 - Sun Oct 11: T4.7 runbook + Week 4 summary
 - Mon Oct 12: buffer
-No work Sat Oct 3 or Sun Oct 4.
+
+**Carried to T4.4 / T4.6:**
+- **Port 8000 is taken locally** by another project's container. T4.4's
+  local API run and T4.6's `make demo` (`localhost:8000` in §7) will
+  collide; pick a port or stop that container first
+- The Lambda API image should also be arm64, built with
+  `--provenance=false --sbom=false` (one ECR entry per push). It shares
+  the 500 MB ECR free allowance: ~253 MB left
 
 **The embedder decision** (full report in `docs/comparison.md`):
 TF-IDF ships. Keyword Jaccard@10 of 0.0376 against Word2Vec's 0.0241 — a
@@ -97,51 +113,58 @@ trained on. TF-IDF also fits faster (4.62s vs 16.74s); its only
 disadvantage is 11 MB more on disk.
 
 **Numbers from the real data** (full detail in `docs/schema.md`):
-- 1,495,113 rows ingested; 77,281 in catalog; 772,810 neighbour rows
+- 1,510,866 rows ingested (Oct 7; 1,495,113 on Sep 14); 77,281 in catalog;
+  772,810 neighbour rows
 - Raw file has 1,356 duplicate IDs; `prepare()` dedupes explicitly after
   the filters, keeping max `vote_count`
 - Keyword coverage 85.5% at `vote_count >= 50`, median 5. 1,710 of 2,000
   sampled queries have keywords; the rest are skipped, not scored zero
 - No collection column, so T2.4 is skipped — Keyword Jaccard@10 is the
   only held-out metric, with no fallback
-- Full run, both methods, 148s: tfidf peak 2,969 MB / 34.2 MB artifact;
-  word2vec peak 2,028 MB / 23.1 MB. Inside the 4 GiB Fargate budget
+- **Frozen dataset:** the Oct 7 catalog is the same 77,281 ids as Sep 23,
+  with identical vote_count and documents. New raw rows all fail the
+  filters, so a weekly refresh does not currently change recommendations
+  (§3 corrected)
+- Full pipeline at `--memory=4g`: peak 2.58 GiB (step 4). On Fargate:
+  5.5 min, neighbours 189 s, DynamoDB load 94 s
 
 **Environment:**
 - venv `movie_rec_venv/` on Python 3.12.5; container base
-  `python:3.12-slim`
+  `python:3.12-slim`, built natively as **arm64** (no `--platform` flag):
+  `make image`. Fargate runs it on ARM64/Graviton. amd64 under emulation hung importing scipy.stats
 - Docker 28.0.4, AWS CLI 2.37.3, Terraform 1.16.4 (1.13.3 until Sep 28;
   the Sep 25 install was logged wrong). Homebrew could not
   build the CLIs (Command Line Tools too old for source builds on
   Sonoma) — both installed from official binaries, so Terraform upgrades
   are a manual re-download
-- AWS: IAM user `movierec-dev`, us-east-1, $0.00 spent, $120 credits,
+- AWS: IAM user `movierec-dev`, us-east-1, ~$0.07 spent (Oct 7 run), $120 credits,
   $2 budget alert, Free plan ends Mar 10 2027
 - GloVe at `~/glove/glove-100d.kv`; `MOVIEREC_WORD2VEC_MODEL_PATH` in
   `.env`
 - boto3 and moto added.
 
-**Next: T4.3, which now also carries:**
-1. `pipeline.py`, the Fargate entry point (still empty)
-2. a STORAGE_BACKEND factory. None exists; the CLIs create LocalStore
-   directly
-3. TF-IDF set as the default method in `config/default.yaml`
-4. keeping or saving the catalog, which isn't written to artifacts/ but
-   the DynamoDB writer needs
-5. the ECS execution role, cluster, task definition and log group
-6. the first real test of the task role's IAM policy; the smoke tests ran
-   as movierec-dev with AdministratorAccess
-7. `--platform linux/amd64` builds (Fargate is amd64, the laptop is arm64)
+**For the T4.7 runbook:** rollback reaches back ~60 days (run folders expire
+at 60 d, their noncurrent copies 7 d later). The weekly-failure alarm (T4.5)
+is what stops `current.json` from ever pointing at an expired run.
+Also: watch peak memory as the catalog grows. Step 4's TF-IDF chunk is the
+run's peak (2.58 GiB of 4 at 77K movies, chunk_size 1000); a growing catalog
+raises it, and an OOM shows up as exit 137 in `describe-tasks` (§9 2026-10-07).
 
-**Deferred, with a home:** `movierec/pipeline.py` is empty and gets
-written in Phase 4 for the Fargate entry point. `run_date` semantics —
-same-day sample and full runs share a folder and overwrite. UTC vs local
-`run_date`. Dependency pinning. least-privilege IAM for movierec-dev, until after Oct 12.
-Delete markers under artifacts/ accepted at negligible cost. 
-Dependency pinning. run_date semantics. The 262-row demo catalog (T4.6). 
-Fargate is amd64 and the laptop is arm64, so T4.3 builds need `--platform linux/amd64`. The 262-row demo catalog is revisited at T4.6.
+**Timeout tuning:** the entrypoint stays `timeout 45m`; propose 15m
+(~2.7× the measured 5.5 min) after a few weekly runs. Needs a rebuild + push.
 
-**Reference:** `docs/week3_summary.md` for this week in full, §9 of
+**Deferred, with a home:** `run_date` semantics — same-day sample and
+full runs share a folder and overwrite (run_date is now UTC; full runs
+move to S3, local `artifacts/` holds sample runs only). Dependency
+pinning — now a cost issue too: each unpinned rebuild can add a ~230 MB
+ECR layer against the 500 MB free allowance. Least-privilege IAM for
+movierec-dev, until after Oct 12. Delete markers under artifacts/
+accepted at negligible cost. The 262-row demo catalog is revisited at
+T4.6. **After Oct 12:** skip the DynamoDB load when the catalog and
+neighbours are unchanged from the previous run; it is ~85% of the per-run
+cost, and with the frozen dataset every run is currently unchanged.
+
+**Reference:** `docs/week3_summary.md` and `docs/week4_summary.md`, §9 of
 `IMPLEMENTATION.md` for every deviation from spec.
 
 ---

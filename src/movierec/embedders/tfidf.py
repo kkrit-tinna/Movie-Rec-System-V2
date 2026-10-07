@@ -90,14 +90,18 @@ class TfidfEmbedder(BaseEmbedder):
 
 def main() -> None:
     from movierec.data.ingest import load, prepare
-    from movierec.storage.local import LocalStore
+    from movierec.storage.factory import get_store
 
     parser = argparse.ArgumentParser(
-        description="Fit a TfidfEmbedder on --input and save it via LocalStore."
+        description="Fit a TfidfEmbedder on --input and save it to the configured store."
     )
     parser.add_argument("--input", required=True, help="already-downloaded CSV path")
     parser.add_argument("--run-date", default=date.today().isoformat())
-    parser.add_argument("--storage-root", default="./artifacts", help="LocalStore root")
+    parser.add_argument(
+        "--storage-root",
+        default="./artifacts",
+        help="LocalStore root (ignored when STORAGE_BACKEND=s3)",
+    )
     args = parser.parse_args()
 
     catalog = prepare(load(args.input))
@@ -105,7 +109,7 @@ def main() -> None:
     embedder = TfidfEmbedder()
     embedder.fit(catalog["document"].tolist(), catalog["id"].tolist())
 
-    store = LocalStore(root=args.storage_root)
+    store = get_store(root=args.storage_root)
     embedder.save(store, args.run_date)
 
     print(f"fit and saved tfidf embedder for {len(catalog)} rows, run_date={args.run_date}")

@@ -22,7 +22,12 @@ word2vec:
 
 index:
   k: 10
-  chunk_size: 2000
+  # Query rows per similarity block; the TF-IDF block (dense + sparse
+  # product) is step 4's memory spike and grows with the catalog. Full run
+  # peak at 77K catalog: 2000 -> 3.44 GiB, 1000 -> 2.58 GiB of the 4 GiB
+  # Fargate task, same step 4 time, identical output (§9 2026-10-07;
+  # 5000 -> 2000 on 09-18).
+  chunk_size: 1000
 
 eval:
   # Peak-RSS sampling interval for the comparison harness (T2.2).
@@ -52,3 +57,19 @@ dynamo:
   # MOVIEREC_DYNAMO_MAX_RETRIES / MOVIEREC_DYNAMO_BASE_DELAY override.
   max_retries: 8
   base_delay: 0.1
+  # Table written by pipeline.py step 7; matches infra/ (§7 T4.1).
+  table_name: movies
+
+pipeline:
+  # Method current.json points at after a successful run, i.e. what the site
+  # serves by default. TF-IDF per docs/comparison.md (§9 2026-09-27); set
+  # here in T4.3, where pipeline.py first reads it (§9 2026-09-28).
+  default_method: tfidf
+
+storage:
+  # get_store() (storage/factory.py) precedence: explicit argument, then env
+  # STORAGE_BACKEND / MOVIEREC_S3_BUCKET, then these values, then code
+  # default. bucket stays null in git: it carries the account ID and is
+  # supplied by env (.env locally, the task definition on Fargate).
+  backend: local
+  bucket: null

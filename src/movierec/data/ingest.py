@@ -82,27 +82,34 @@ def prepare(df: pd.DataFrame, catalog_config: dict | None = None) -> pd.DataFram
     document = title + tagline + overview + genres, space-joined, lowercased.
     Whitespace is collapsed the same way scripts/build_sample.py collapses it
     when writing the sample, so sample and full-catalog documents agree.
+
+    Filters run before any text work: the catalog is ~5% of the full file,
+    and building documents for every row left ~2 GB of freed string memory
+    that the allocator never returned, which OOM-killed the 4 GiB Fargate
+    task (§9 2026-10-07). Every text step is per-row, so the output is
+    identical to building first and filtering after.
     """
     catalog_config = catalog_config or _load_catalog_config()
-    df = df.copy()
+
+    # Numeric/status filters first: cheap, and they drop most of the rows.
+    mask = (df["vote_count"] >= catalog_config["min_vote_count"]) & (
+        df["status"].isin(catalog_config["status"])
+    )
+    if catalog_config["exclude_adult"]:
+        mask &= ~df["adult"].fillna(False)
+    df = df[mask].copy()
 
     for col in DOCUMENT_FIELDS:
         df[col] = _collapse_whitespace(df[col])
+    # The overview-length filter reads the collapsed overview, as before.
+    df = df[df["overview"].str.len() >= catalog_config["min_overview_chars"]].copy()
 
     document = df[DOCUMENT_FIELDS[0]]
     for col in DOCUMENT_FIELDS[1:]:
         document = document + " " + df[col]
     df["document"] = document.str.lower().str.replace(r"\s+", " ", regex=True).str.strip()
 
-    mask = (
-        (df["overview"].str.len() >= catalog_config["min_overview_chars"])
-        & (df["vote_count"] >= catalog_config["min_vote_count"])
-        & (df["status"].isin(catalog_config["status"]))
-    )
-    if catalog_config["exclude_adult"]:
-        mask &= ~df["adult"].fillna(False)
-
-    catalog = df[mask].reset_index(drop=True)
+    catalog = df.reset_index(drop=True)
     catalog = (
         catalog.sort_values("vote_count", ascending=False)
         .drop_duplicates(subset="id", keep="first")

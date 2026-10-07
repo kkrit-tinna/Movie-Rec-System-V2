@@ -210,3 +210,33 @@ class TestPersistence:
         loaded = Word2VecEmbedder.load(store, "2026-09-22")
         assert loaded._keyed_vectors is None
         assert loaded.matrix.shape == (4, 5)
+
+
+def test_load_keyed_vectors_from_s3_uri(keyed_vectors, tmp_path, monkeypatch):
+    # Fargate path: MOVIEREC_WORD2VEC_MODEL_PATH=s3://... is downloaded with
+    # its sidecar, then mmap-loaded. sep_limit=0 forces the separate
+    # .vectors.npy file that the real GloVe save has.
+    import boto3
+    from moto import mock_aws
+
+    local = tmp_path / "src" / "glove.kv"
+    local.parent.mkdir()
+    keyed_vectors.save(str(local), sep_limit=0)
+    assert (local.parent / "glove.kv.vectors.npy").exists()
+
+    monkeypatch.delenv("AWS_PROFILE", raising=False)
+    for name in ("AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN"):
+        monkeypatch.setenv(name, "testing")
+    monkeypatch.setenv("AWS_DEFAULT_REGION", "us-east-1")
+    monkeypatch.setattr(word2vec.tempfile, "gettempdir", lambda: str(tmp_path / "tmp"))
+    with mock_aws():
+        client = boto3.client("s3", region_name="us-east-1")
+        client.create_bucket(Bucket="models-bucket")
+        for f in local.parent.iterdir():
+            client.upload_file(str(f), "models-bucket", f"models/{f.name}")
+        monkeypatch.setenv(word2vec.MODEL_PATH_ENV, "s3://models-bucket/models/glove.kv")
+
+        loaded = word2vec.load_keyed_vectors(CONFIG)
+
+    np.testing.assert_array_equal(loaded["spy"], keyed_vectors["spy"])
+    assert (tmp_path / "tmp" / "movierec-models" / "glove.kv.vectors.npy").exists()

@@ -70,7 +70,9 @@ def gate_row_count_drift(
 def gate_null_rate(raw_series: pd.Series, field_name: str, config: dict | None = None) -> GateResult:
     config = config or _load_quality_config()
     threshold = config["null_rate_max"][field_name]
-    null_rate = raw_series.isna().mean() if len(raw_series) else 0.0
+    # float(): pandas returns numpy scalars, and numpy's bool_ from the
+    # comparison below is not JSON-serialisable in quality_report.json.
+    null_rate = float(raw_series.isna().mean()) if len(raw_series) else 0.0
     return GateResult(f"null_rate_max.{field_name}", null_rate <= threshold, null_rate, threshold)
 
 
@@ -147,14 +149,25 @@ def _previous_row_count(store: ArtifactStore, run_date: str) -> float | None:
     return None
 
 
-def enforce(results: list[GateResult], store: ArtifactStore, run_date: str) -> None:
+def enforce(
+    results: list[GateResult],
+    store: ArtifactStore,
+    run_date: str,
+    config_overlay: str | None = None,
+) -> None:
     """Write the cumulative report, then raise if any gate failed.
 
     Callers pass the cumulative list of results collected so far; calling
     this again later (e.g. once embeddings are available) overwrites the
-    report at the same path with the fuller one.
+    report at the same path with the fuller one. config_overlay is the
+    overlay file the thresholds came from (e.g. config/sample.yaml), or
+    None for default.yaml alone, so a report says which floors it was held to.
     """
-    report = {"run_date": run_date, "gates": [asdict(r) for r in results]}
+    report = {
+        "run_date": run_date,
+        "config_overlay": config_overlay,
+        "gates": [asdict(r) for r in results],
+    }
     store.put_json(f"quality/{run_date}/quality_report.json", report)
 
     if any(not r.passed for r in results):

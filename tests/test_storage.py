@@ -3,7 +3,7 @@ import pytest
 from moto import mock_aws
 
 from movierec.storage.local import LocalStore
-from movierec.storage.s3 import S3Store
+from movierec.storage.s3 import S3Store, download_with_sidecars
 
 TEST_BUCKET = "movierec-test-bucket"
 
@@ -82,3 +82,46 @@ class TestArtifactStore:
         for path in expected:
             store.put_bytes(path, b"x")
         assert store.list("many") == expected
+
+
+# --- download_with_sidecars (GloVe from S3 on Fargate) -----------------------
+
+@pytest.fixture
+def s3_client(monkeypatch):
+    monkeypatch.delenv("AWS_PROFILE", raising=False)
+    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "testing")
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "testing")
+    monkeypatch.setenv("AWS_SECURITY_TOKEN", "testing")
+    monkeypatch.setenv("AWS_SESSION_TOKEN", "testing")
+    monkeypatch.setenv("AWS_DEFAULT_REGION", "us-east-1")
+    with mock_aws():
+        client = boto3.client("s3", region_name="us-east-1")
+        client.create_bucket(Bucket=TEST_BUCKET)
+        yield client
+
+
+def test_download_with_sidecars_fetches_file_and_sidecars_only(s3_client, tmp_path):
+    for key, body in {
+        "models/glove.kv": b"main",
+        "models/glove.kv.vectors.npy": b"vectors",
+        "models/glove.kv2": b"different model",
+        "models/other.kv": b"other",
+    }.items():
+        s3_client.put_object(Bucket=TEST_BUCKET, Key=key, Body=body)
+
+    path = download_with_sidecars(f"s3://{TEST_BUCKET}/models/glove.kv", tmp_path, s3_client)
+
+    assert path == tmp_path / "glove.kv"
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["glove.kv", "glove.kv.vectors.npy"]
+    assert (tmp_path / "glove.kv.vectors.npy").read_bytes() == b"vectors"
+
+
+def test_download_with_sidecars_missing_key_raises(s3_client, tmp_path):
+    s3_client.put_object(Bucket=TEST_BUCKET, Key="models/glove.kv.vectors.npy", Body=b"x")
+    with pytest.raises(FileNotFoundError):
+        download_with_sidecars(f"s3://{TEST_BUCKET}/models/glove.kv", tmp_path, s3_client)
+
+
+def test_download_with_sidecars_rejects_non_s3_uri(tmp_path):
+    with pytest.raises(ValueError):
+        download_with_sidecars("/models/glove.kv", tmp_path)

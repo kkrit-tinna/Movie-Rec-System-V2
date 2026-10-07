@@ -186,6 +186,24 @@ class TestEnforce:
         report = store.get_json("quality/2026-09-21/quality_report.json")
         assert len(report["gates"]) == 2
 
+    def test_report_serialises_every_gate_on_pandas_and_numpy_inputs(self, tmp_path):
+        # Regression: gate_null_rate returned numpy bool_, which json.dumps
+        # rejects, so the first real pipeline run crashed writing the report.
+        store = _store(tmp_path)
+        results = [
+            gate_row_count_min(1500, CONFIG),
+            gate_row_count_drift(1500, store, "2026-09-21", CONFIG),
+            gate_null_rate(pd.Series(["a", None, "c"]), "overview", CONFIG),
+            gate_catalog_count_min(150, CONFIG),
+            gate_duplicate_id_rate(pd.Series([1, 2, 3]), CONFIG),
+            gate_embedding_nan_rate(np.ones((2, 2), dtype=np.float16), CONFIG),
+            gate_zero_vector_rate(sp.csr_matrix(np.eye(2)), CONFIG),
+        ]
+        enforce(results, store, "2026-09-21")
+        report = store.get_json("quality/2026-09-21/quality_report.json")
+        assert len(report["gates"]) == len(results)
+        assert report["config_overlay"] is None
+
 
 def test_gate_result_is_a_dataclass_with_expected_fields():
     result = GateResult(name="x", passed=True, observed=1, threshold=2)

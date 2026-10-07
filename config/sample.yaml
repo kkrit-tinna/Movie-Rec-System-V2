@@ -1,0 +1,9 @@
+# Overlay for runs on data/sample/movies_5k.csv (make demo, T4.6). Merged
+# over default.yaml by `python -m movierec.pipeline --config config/sample.yaml`;
+# only the keys below change. The sample is a fixed, committed 5,000-row file
+# whose catalog is 262 rows (§9 2026-09-16), so these are still real floors:
+# a truncated sample or a filter change that collapses the catalog fails.
+# Exception to "thresholds live in default.yaml", logged in §9 2026-10-06.
+quality:
+  row_count_min: 5000
+  catalog_count_min: 250

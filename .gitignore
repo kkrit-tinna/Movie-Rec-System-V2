@@ -39,3 +39,4 @@ run_*.log
 *.tfstate.*
 crash.log
 *.tfvars
+*.tfplan

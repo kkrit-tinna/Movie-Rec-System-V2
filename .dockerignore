@@ -1,0 +1,16 @@
+# Build context: only what the Dockerfile COPYs needs to be sent. Secrets and
+# data are listed explicitly so they can never reach the image by accident.
+.env
+**/kaggle.json
+data/*
+!data/sample/
+artifacts/
+movie_rec_venv/
+infra/
+.git/
+**/__pycache__/
+.pytest_cache/
+docs/
+notes/
+*.log
+.DS_Store

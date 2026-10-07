@@ -18,7 +18,7 @@ from sklearn.preprocessing import normalize
 
 from movierec.embedders.tfidf import TfidfEmbedder
 from movierec.storage.base import ArtifactStore
-from movierec.storage.local import LocalStore
+from movierec.storage.factory import get_store
 
 CONFIG_PATH = Path(__file__).resolve().parents[3] / "config" / "default.yaml"
 
@@ -103,10 +103,14 @@ def main() -> None:
     parser.add_argument(
         "--run-date", required=True, help="run_date of an already-saved tfidf embedder"
     )
-    parser.add_argument("--storage-root", default="./artifacts", help="LocalStore root")
+    parser.add_argument(
+        "--storage-root",
+        default="./artifacts",
+        help="LocalStore root (ignored when STORAGE_BACKEND=s3)",
+    )
     args = parser.parse_args()
 
-    store = LocalStore(root=args.storage_root)
+    store = get_store(root=args.storage_root)
     embedder = TfidfEmbedder.load(store, args.run_date)
     neighbours = compute_neighbours(embedder.matrix, embedder.movie_ids)
     save_neighbours(neighbours, store, args.run_date)

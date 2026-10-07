@@ -9,6 +9,7 @@ drops the bigram keys of the fitted TF-IDF vocabulary before passing it in.
 """
 import io
 import os
+import tempfile
 from pathlib import Path
 
 import numpy as np
@@ -39,8 +40,18 @@ def _build_analyser(tfidf_config: dict):
 
 
 def load_keyed_vectors(config: dict) -> KeyedVectors:
-    """Resolve the model source: env var -> config `model_path` -> `model_name`."""
+    """Resolve the model source: env var -> config `model_path` -> `model_name`.
+
+    An s3:// model_path (Fargate) is first downloaded with its sidecar files
+    to a local temp directory, then loaded with mmap like a local path.
+    """
     model_path = os.environ.get(MODEL_PATH_ENV) or config.get("model_path")
+    if model_path and model_path.startswith("s3://"):
+        from movierec.storage.s3 import download_with_sidecars
+
+        model_path = download_with_sidecars(
+            model_path, os.path.join(tempfile.gettempdir(), "movierec-models")
+        )
     if model_path:
         return KeyedVectors.load(str(Path(model_path).expanduser()), mmap="r")
 

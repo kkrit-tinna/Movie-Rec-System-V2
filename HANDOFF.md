@@ -65,7 +65,7 @@ Target cost: under $0.50/month. Everything is Terraform.
 
 ## Where I am right now
 
-*Last updated: Wednesday, Oct 7, 2026 — Week 5*
+*Last updated: Thursday, Oct 8, 2026 — Week 5 (timeline revised)*
 
 **Status:** Phases 1 and 2 complete. T4.1 (`feat: terraform-base-infra`)
 and T4.2 (`feat: s3-store-and-dynamo-writer`) committed. **T4.3 done**
@@ -86,16 +86,24 @@ before building documents in `prepare()` and `chunk_size` 1000 (peak
 **Spend:** today's run about $0.06 (Fargate ~$0.009, DynamoDB writes
 ~$0.05, COUNT scans ~$0.002). §2's cost table now holds measured numbers:
 ~$0.28/month weekly, DynamoDB the largest line; the "revisit §2 after real
-runs" item is resolved. **Check tomorrow's bill (Cost Explorer, Oct 7)
-against about $0.06.**
+runs" item is resolved.
 
-**Schedule:** deadline **Oct 12**.
-- Wed Oct 7: T4.3b (ECR push + Fargate run) done, T4.3 closed
-- **Next: T4.4 API, Wed Oct 7 – Thu Oct 8**
-- Fri Oct 9: T4.5 schedule + alerting
-- Sat Oct 10: T4.6 `make demo` + README
-- Sun Oct 11: T4.7 runbook + Week 4 summary
-- Mon Oct 12: buffer
+**Schedule:** deadline moved **Oct 12 → Fri Oct 23** (§9 2026-10-08;
+table in §7). Priority: a live T4.4 site before the **Oct 15 career fair**;
+automation and docs after.
+- Wed Oct 7: T4.3 closed
+- **Next: Fri Oct 9 (30 min): T4.4a** — title index + Flask API
+  (`/api/search`, `/api/similar`) with tests, local run on port 8001
+- Mon Oct 12 (30 min): T4.4a finish — minimal page (search, posters,
+  method toggle); `Dockerfile.api` + Mangum adapter, tested locally
+- Tue Oct 13 (30 min): T4.4b — arm64 API image, Terraform Lambda + IAM +
+  Function URL (reserved concurrency capped), Done-when check
+- Wed Oct 14 (30 min): buffer for T4.4; if done, verify the live site only
+- Sat Oct 17: T4.5 schedule + alerting
+- Sun Oct 18: check the 02:00 scheduled run; T4.6 `make demo` + README;
+  Week 5 summary + HANDOFF
+- Mon–Fri Oct 19–23 (15 min/day): T4.6 finish, T4.7 runbook, deferred cleanups
+- No work: Oct 8, Oct 10–11, Oct 15–16
 
 **Carried to T4.4 / T4.6:**
 - **Port 8000 is taken locally** by another project's container. T4.4's
@@ -104,6 +112,10 @@ against about $0.06.**
 - The Lambda API image should also be arm64, built with
   `--provenance=false --sbom=false` (one ECR entry per push). It shares
   the 500 MB ECR free allowance: ~253 MB left
+- The Function URL is public with no auth: give the Lambda a **reserved
+  concurrency cap** (~5) so abuse can't run up Lambda/DynamoDB read cost
+- Mangum serves ASGI and Flask is WSGI: a WSGI→ASGI wrapper is needed;
+  choose it in T4.4b
 
 **The embedder decision** (full report in `docs/comparison.md`):
 TF-IDF ships. Keyword Jaccard@10 of 0.0376 against Word2Vec's 0.0241 — a
@@ -158,9 +170,9 @@ full runs share a folder and overwrite (run_date is now UTC; full runs
 move to S3, local `artifacts/` holds sample runs only). Dependency
 pinning — now a cost issue too: each unpinned rebuild can add a ~230 MB
 ECR layer against the 500 MB free allowance. Least-privilege IAM for
-movierec-dev, until after Oct 12. Delete markers under artifacts/
+movierec-dev, Oct 19–23 or later. Delete markers under artifacts/
 accepted at negligible cost. The 262-row demo catalog is revisited at
-T4.6. **After Oct 12:** skip the DynamoDB load when the catalog and
+T4.6. **Oct 19–23 or later:** skip the DynamoDB load when the catalog and
 neighbours are unchanged from the previous run; it is ~85% of the per-run
 cost, and with the frozen dataset every run is currently unchanged.
 
@@ -176,3 +188,4 @@ cost, and with the frozen dataset every run is currently unchanged.
 - Explain cloud concepts when they come up. I'd rather understand the thing than have it work.
 - Push back if I'm over-engineering. That's the mistake that produced v1.
 - Flag anything that could cost money before I run it.
+- Never commit or push. Stop at `git status --short` and the list of files to add; I commit and push myself.

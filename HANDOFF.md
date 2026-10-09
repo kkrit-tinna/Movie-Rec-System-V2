@@ -93,7 +93,7 @@ table in §7). Priority: a live T4.4 site before the **Oct 15 career fair**;
 automation and docs after.
 - Wed Oct 7: T4.3 closed
 - **Next: Fri Oct 9 (30 min): T4.4a** — title index + Flask API
-  (`/api/search`, `/api/similar`) with tests, local run on port 8001
+  (`/api/search`, `/api/similar`) with tests, local run on port 8000
 - Mon Oct 12 (30 min): T4.4a finish — minimal page (search, posters,
   method toggle); `Dockerfile.api` + Mangum adapter, tested locally
 - Tue Oct 13 (30 min): T4.4b — arm64 API image, Terraform Lambda + IAM +
@@ -106,9 +106,14 @@ automation and docs after.
 - No work: Oct 8, Oct 10–11, Oct 15–16
 
 **Carried to T4.4 / T4.6:**
-- **Port 8000 is taken locally** by another project's container. T4.4's
-  local API run and T4.6's `make demo` (`localhost:8000` in §7) will
-  collide; pick a port or stop that container first
+- Port 8000 is free again (the other project's container was stopped Oct 9);
+  T4.4 and T4.6's `make demo` both use `localhost:8000`
+- API deps go in an optional `[api]` extra; the default method comes from
+  config (`pipeline.default_method`), not `current.json`
+- Title index: `build_title_index()` + CLI, **bundled in the API image** for
+  the fair (safe while the dataset is frozen). **After Oct 15:** move it to
+  the pipeline (`catalog/{run_date}/titles.json.gz` in S3, loaded via
+  `current.json` at cold start) so search can't drift from DynamoDB
 - The Lambda API image should also be arm64, built with
   `--provenance=false --sbom=false` (one ECR entry per push). It shares
   the 500 MB ECR free allowance: ~253 MB left

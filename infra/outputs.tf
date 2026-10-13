@@ -37,3 +37,7 @@ output "batch_task_definition_arn" {
 output "batch_log_group_name" {
   value = aws_cloudwatch_log_group.batch.name
 }
+
+output "function_url" {
+  value = aws_lambda_function_url.api.function_url
+}

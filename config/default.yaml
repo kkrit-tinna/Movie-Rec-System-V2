@@ -66,6 +66,30 @@ pipeline:
   # here in T4.3, where pipeline.py first reads it (§9 2026-09-28).
   default_method: tfidf
 
+api:
+  # Title index built by `python -m movierec.index.titles` and loaded by the
+  # API at start-up (T4.4a). Env MOVIEREC_TITLES_PATH overrides. Lives under
+  # artifacts/, so it is git-ignored; for the Oct 15 fair it is bundled into
+  # the API image, which needs a deliberate COPY since .dockerignore excludes
+  # artifacts/ (§9 2026-10-09).
+  titles_path: artifacts/api/titles.json.gz
+  # /api/search ignores queries shorter than this; `n` and `limit` are
+  # clamped to 1..max_results (v1's range). /api/similar's default n is
+  # index.k, which is also all the neighbours an item holds.
+  min_query_chars: 2
+  max_results: 20
+  # Fuzzy tail only: a title whose normalized length is under this fraction
+  # of the query's is dropped. WRatio's partial match scores one-letter
+  # titles 90 for "incep"; noise measured at <= 0.33 (I, P, IO, Her), while
+  # 0.5 would drop "Star Wars" for "star wars episode iv" (0.45). Exact
+  # matches are never filtered (§9 2026-10-12).
+  min_fuzzy_length_ratio: 0.4
+  # Local dev server (`python -m movierec.api --local`); env MOVIEREC_API_PORT
+  # overrides, --port overrides both. Host: env MOVIEREC_API_HOST overrides;
+  # loopback by default, 0.0.0.0 only inside a container (§9 2026-10-12).
+  host: 127.0.0.1
+  port: 8000
+
 storage:
   # get_store() (storage/factory.py) precedence: explicit argument, then env
   # STORAGE_BACKEND / MOVIEREC_S3_BUCKET, then these values, then code

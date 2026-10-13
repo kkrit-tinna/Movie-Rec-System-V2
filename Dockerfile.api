@@ -1,0 +1,49 @@
+# API image for T4.4: Lambda container image, arm64 like the batch image.
+# Slim on purpose (§9 2026-10-09): the API serves precomputed results, so it
+# carries none of the batch dependencies (pandas, sklearn, scipy, gensim).
+# tests/test_api_imports.py guards that the API code never needs them.
+FROM python:3.12-slim
+
+# Lambda's filesystem is read-only outside /tmp: never write .pyc at run
+# time; the source is compiled at build time below.
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+WORKDIR /app
+
+# Only the serving dependencies, pinned to the venv versions (awslambdaric is
+# not in the venv; 4.2.0 is the newest release, with a cp312 aarch64 wheel).
+# botocore and markupsafe (via boto3, flask) are pinned too, so the image
+# matches the venv the tests ran in. Pins live here, not in pyproject.toml
+# (general pinning deferred).
+# --only-binary: a source build (gcc, cmake) fails the build rather than
+# needing build tools in the image.
+RUN pip install --only-binary=:all: \
+        flask==3.1.3 \
+        markupsafe==3.0.3 \
+        rapidfuzz==3.14.6 \
+        boto3==1.43.106 \
+        botocore==1.43.106 \
+        mangum==0.22.0 \
+        a2wsgi==1.10.10 \
+        pyyaml==6.0.3 \
+        awslambdaric==4.2.0
+
+# Editable, no deps: modules keep resolving config/ as <repo>/config, i.e.
+# /app/config, as in the batch image. compileall writes the .pyc files now.
+COPY pyproject.toml .
+COPY src/ src/
+COPY config/ config/
+RUN pip install --no-deps -e . \
+    && python -m compileall -q /app/src
+
+# Title index bundled for the Oct 15 fair (§7 T4.4); .dockerignore excludes
+# artifacts/ except this one file. Build it first with
+# `python -m movierec.index.titles`.
+COPY artifacts/api/titles.json.gz /app/titles.json.gz
+ENV MOVIEREC_TITLES_PATH=/app/titles.json.gz
+
+ENTRYPOINT ["python", "-m", "awslambdaric"]
+CMD ["movierec.api.lambda_handler.handler"]

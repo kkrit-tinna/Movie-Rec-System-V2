@@ -7,7 +7,9 @@ from moto import mock_aws
 
 from movierec.storage import dynamo
 from movierec.storage.dynamo import (
+    BATCH_GET_SIZE,
     MAX_ITEM_BYTES,
+    DynamoReader,
     DynamoWriter,
     build_items,
     item_size_bytes,
@@ -254,3 +256,118 @@ class TestDynamoWriterRetries:
         monkeypatch.setenv(dynamo.BASE_DELAY_ENV, "0.5")
         writer = DynamoWriter(TABLE, client=FakeClient(0))
         assert (writer.max_retries, writer.base_delay) == (2, 0.5)
+
+
+# --- DynamoReader (T4.4a) ---------------------------------------------------
+
+
+@pytest.fixture
+def loaded(ddb_client, items):
+    DynamoWriter(TABLE, client=ddb_client).write(items)
+    return ddb_client
+
+
+class TestDynamoReaderMoto:
+    def test_get_item_found_with_plain_numbers(self, loaded, items):
+        got = DynamoReader(TABLE, client=loaded).get_item("100")
+        assert got["title"] == "Movie 0"
+        assert got["year"] == 2000 and type(got["year"]) is int
+        assert got["vote_average"] == 6.5 and type(got["vote_average"]) is float
+        assert got["similar_tfidf"][0] == {"id": "101", "score": 0.4877}
+        assert not any(isinstance(v, Decimal) for v in _walk(got))
+
+    def test_get_item_missing_returns_none(self, loaded):
+        assert DynamoReader(TABLE, client=loaded).get_item("999999") is None
+
+    def test_batch_get_ten_ids_keeps_requested_order(self, loaded):
+        ids = ["109", "100", "105", "111", "102", "107", "101", "110", "104", "103"]
+        got = DynamoReader(TABLE, client=loaded).batch_get(ids)
+        assert [g["movie_id"] for g in got] == ids
+        assert not any(isinstance(v, Decimal) for v in _walk(got))
+
+    def test_batch_get_skips_and_logs_missing_ids(self, loaded, caplog):
+        with caplog.at_level("WARNING", logger="movierec.storage.dynamo"):
+            got = DynamoReader(TABLE, client=loaded).batch_get(["103", "nope", "100"])
+        assert [g["movie_id"] for g in got] == ["103", "100"]
+        assert "nope" in caplog.text
+
+    def test_batch_get_duplicate_ids_sent_once(self, loaded):
+        # The service rejects a request that repeats a key; moto does too.
+        got = DynamoReader(TABLE, client=loaded).batch_get(["100", "101", "100"])
+        assert [g["movie_id"] for g in got] == ["100", "101", "100"]
+
+    def test_batch_get_empty(self, loaded):
+        assert DynamoReader(TABLE, client=loaded).batch_get([]) == []
+
+
+class RecordingClient:
+    """Wraps a real (moto) client and records the key count of each
+    batch_get_item call."""
+
+    def __init__(self, client):
+        self.client = client
+        self.calls = []
+
+    def batch_get_item(self, RequestItems):
+        (table, request), = RequestItems.items()
+        self.calls.append(len(request["Keys"]))
+        return self.client.batch_get_item(RequestItems=RequestItems)
+
+
+class TestDynamoReaderSplit:
+    def test_more_than_100_ids_split_into_service_sized_calls(self, ddb_client, items):
+        many = [dict(items[0], movie_id=str(1000 + n)) for n in range(250)]
+        DynamoWriter(TABLE, client=ddb_client).write(many)
+        client = RecordingClient(ddb_client)
+        ids = [m["movie_id"] for m in reversed(many)]
+        got = DynamoReader(TABLE, client=client).batch_get(ids)
+        assert client.calls == [BATCH_GET_SIZE, BATCH_GET_SIZE, 50]
+        assert [g["movie_id"] for g in got] == ids
+
+
+class FakeGetClient:
+    """batch_get_item that returns every key unprocessed for the first
+    `fail_calls` calls, then answers them all."""
+
+    def __init__(self, fail_calls: int):
+        self.fail_calls = fail_calls
+        self.calls = []
+
+    def batch_get_item(self, RequestItems):
+        (table, request), = RequestItems.items()
+        keys = request["Keys"]
+        self.calls.append(len(keys))
+        if len(self.calls) <= self.fail_calls:
+            return {"Responses": {table: []}, "UnprocessedKeys": {table: {"Keys": keys}}}
+        items = [{"movie_id": k["movie_id"], "year": {"N": "2010"}} for k in keys]
+        return {"Responses": {table: items}, "UnprocessedKeys": {}}
+
+
+class TestDynamoReaderRetries:
+    def test_unprocessed_keys_retried_then_succeed(self, sleeps):
+        client = FakeGetClient(fail_calls=2)
+        reader = DynamoReader(TABLE, client=client, max_retries=3, base_delay=0.1)
+        got = reader.batch_get(["1", "2", "3"])
+        assert [g["movie_id"] for g in got] == ["1", "2", "3"]
+        assert got[0]["year"] == 2010
+        assert client.calls == [3, 3, 3]
+        assert len(sleeps) == 2 and all(0 <= s <= 0.1 * 2**i for i, s in enumerate(sleeps))
+
+    def test_gives_up_after_max_retries(self, sleeps):
+        client = FakeGetClient(fail_calls=10**6)
+        reader = DynamoReader(TABLE, client=client, max_retries=2, base_delay=0.1)
+        with pytest.raises(RuntimeError, match="3 keys unread"):
+            reader.batch_get(["1", "2", "3"])
+        assert len(client.calls) == 1 + 2
+
+    def test_table_name_and_retries_from_config(self, monkeypatch):
+        for env in (dynamo.TABLE_NAME_ENV, dynamo.MAX_RETRIES_ENV, dynamo.BASE_DELAY_ENV):
+            monkeypatch.delenv(env, raising=False)
+        reader = DynamoReader(client=FakeGetClient(0))
+        config = dynamo._load_dynamo_config()
+        assert reader.table_name == config["table_name"] == "movies"
+        assert (reader.max_retries, reader.base_delay) == (config["max_retries"], config["base_delay"])
+
+    def test_table_name_env_overrides_config(self, monkeypatch):
+        monkeypatch.setenv(dynamo.TABLE_NAME_ENV, "movies-test")
+        assert DynamoReader(client=FakeGetClient(0)).table_name == "movies-test"

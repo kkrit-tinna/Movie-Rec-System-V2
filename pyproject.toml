@@ -17,6 +17,9 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest", "matplotlib", "moto[s3,dynamodb]"]
+# Serving only (T4.4); kept out of the base deps so the batch image does not grow.
+# mangum + a2wsgi: Lambda (ASGI) in front of the Flask (WSGI) app.
+api = ["flask", "rapidfuzz", "mangum", "a2wsgi"]
 
 [build-system]
 requires = ["setuptools>=68"]

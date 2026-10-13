@@ -1,8 +1,9 @@
 SAMPLE := data/sample/movies_5k.csv
 RUN_DATE := $(shell date +%F)
 IMAGE := movierec-batch:dev
+API_IMAGE := movierec-api:dev
 
-.PHONY: demo-tfidf image push-image
+.PHONY: demo-tfidf image push-image image-api push-image-api
 
 demo-tfidf:
 	python -m movierec.data.ingest --input $(SAMPLE) --dry-run
@@ -21,4 +22,17 @@ push-image:
 	$(eval REPO := $(shell terraform -chdir=infra output -raw batch_repository_url))
 	aws ecr get-login-password | docker login --username AWS --password-stdin $(firstword $(subst /, ,$(REPO)))
 	docker tag $(IMAGE) $(REPO):$(TAG)
+	docker push $(REPO):$(TAG)
+
+# Slim arm64 Lambda image for the API (T4.4), same build flags as `image`.
+# Needs artifacts/api/titles.json.gz (python -m movierec.index.titles).
+image-api:
+	docker buildx build --provenance=false --sbom=false -f Dockerfile.api -t $(API_IMAGE) --load .
+
+# Usage: make push-image-api TAG=t4.4-2026-10-13
+push-image-api:
+	@test -n "$(TAG)" || { echo "TAG is required, e.g. make push-image-api TAG=t4.4-2026-10-13"; exit 1; }
+	$(eval REPO := $(shell terraform -chdir=infra output -raw api_repository_url))
+	aws ecr get-login-password | docker login --username AWS --password-stdin $(firstword $(subst /, ,$(REPO)))
+	docker tag $(API_IMAGE) $(REPO):$(TAG)
 	docker push $(REPO):$(TAG)

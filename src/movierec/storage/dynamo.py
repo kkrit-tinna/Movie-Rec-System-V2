@@ -1,29 +1,41 @@
-"""DynamoDB item builder and batch writer for T4.2b.
+"""DynamoDB item builder, batch writer (T4.2b) and reader (T4.4a).
 
 build_items() is pure: catalog + neighbour frames in, plain Python items out,
 shaped as in IMPLEMENTATION.md §7. DynamoWriter() sends those items to the
 `movies` table with BatchWriteItem, 25 per call, retrying UnprocessedItems
-with exponential backoff and full jitter.
+with exponential backoff and full jitter. DynamoReader() serves the API:
+GetItem for one movie, BatchGetItem (100 keys per call, UnprocessedKeys
+retried the same way) to hydrate its neighbours.
 
-Lives under storage/ because §3 allows boto3 only there.
+Lives under storage/ because §3 allows boto3 only there. pandas is imported
+only inside the build_items path, so the API's DynamoReader import stays
+pandas-free (slim image, §9 2026-10-12).
 """
+from __future__ import annotations
+
+import logging
 import math
 import os
 import random
 import time
 from decimal import Decimal
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import boto3
-import pandas as pd
 import yaml
-from boto3.dynamodb.types import TypeSerializer
+from boto3.dynamodb.types import TypeDeserializer, TypeSerializer
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 CONFIG_PATH = Path(__file__).resolve().parents[3] / "config" / "default.yaml"
 
 # Service limits, not tunables: BatchWriteItem takes at most 25 put requests,
-# and an item may be at most 400 KB counted the way item_size_bytes counts.
+# BatchGetItem at most 100 keys, and an item may be at most 400 KB counted the
+# way item_size_bytes counts.
 BATCH_SIZE = 25
+BATCH_GET_SIZE = 100
 MAX_ITEM_BYTES = 400 * 1024
 
 OVERVIEW_SHORT_CHARS = 200
@@ -31,8 +43,12 @@ SCORE_DECIMALS = 4
 
 MAX_RETRIES_ENV = "MOVIEREC_DYNAMO_MAX_RETRIES"
 BASE_DELAY_ENV = "MOVIEREC_DYNAMO_BASE_DELAY"
+TABLE_NAME_ENV = "MOVIEREC_DYNAMO_TABLE"
 DEFAULT_MAX_RETRIES = 8
 DEFAULT_BASE_DELAY = 0.1
+DEFAULT_TABLE_NAME = "movies"
+
+log = logging.getLogger("movierec.storage.dynamo")
 
 # Indirection so tests can patch the sleep without touching time.sleep globally.
 _sleep = time.sleep
@@ -43,7 +59,23 @@ def _load_dynamo_config() -> dict:
         return yaml.safe_load(f).get("dynamo") or {}
 
 
+def _retry_settings(max_retries: int | None, base_delay: float | None) -> tuple[int, float]:
+    """Argument, then env var, then the yaml `dynamo` block, then code default."""
+    config = _load_dynamo_config()
+    if max_retries is None:
+        max_retries = int(
+            os.environ.get(MAX_RETRIES_ENV) or config.get("max_retries", DEFAULT_MAX_RETRIES)
+        )
+    if base_delay is None:
+        base_delay = float(
+            os.environ.get(BASE_DELAY_ENV) or config.get("base_delay", DEFAULT_BASE_DELAY)
+        )
+    return max_retries, base_delay
+
+
 def _is_missing(value) -> bool:
+    import pandas as pd
+
     if value is None or value is pd.NA:
         return True
     if isinstance(value, float) and math.isnan(value):
@@ -181,15 +213,7 @@ class DynamoWriter:
         max_retries: int | None = None,
         base_delay: float | None = None,
     ):
-        config = _load_dynamo_config()
-        if max_retries is None:
-            max_retries = int(
-                os.environ.get(MAX_RETRIES_ENV) or config.get("max_retries", DEFAULT_MAX_RETRIES)
-            )
-        if base_delay is None:
-            base_delay = float(
-                os.environ.get(BASE_DELAY_ENV) or config.get("base_delay", DEFAULT_BASE_DELAY)
-            )
+        max_retries, base_delay = _retry_settings(max_retries, base_delay)
         self.table_name = table_name
         self.client = client if client is not None else boto3.client("dynamodb")
         self.max_retries = max_retries
@@ -233,3 +257,97 @@ class DynamoWriter:
                 pending = unprocessed
 
         return {"items_written": written, "batches": batches, "retries": retries}
+
+
+def _plain(value):
+    """Deserialized DynamoDB value -> JSON-able Python: Decimal becomes int
+    when it has no fractional digits (year 2010), float otherwise (8.4)."""
+    if isinstance(value, Decimal):
+        return int(value) if value.as_tuple().exponent >= 0 else float(value)
+    if isinstance(value, list):
+        return [_plain(v) for v in value]
+    if isinstance(value, dict):
+        return {k: _plain(v) for k, v in value.items()}
+    if isinstance(value, set):
+        return [_plain(v) for v in value]
+    return value
+
+
+class DynamoReader:
+    """GetItem / BatchGetItem reader for the API, using the low-level client.
+
+    Reads are eventually consistent (half the cost of strongly consistent;
+    the table changes once a week). Items come back with plain int/float in
+    place of Decimal, so callers can jsonify them directly.
+
+    table_name: argument, then env MOVIEREC_DYNAMO_TABLE, then the yaml
+    `dynamo.table_name`, then code default. Retry settings are shared with
+    DynamoWriter.
+    """
+
+    def __init__(
+        self,
+        table_name: str | None = None,
+        client=None,
+        max_retries: int | None = None,
+        base_delay: float | None = None,
+    ):
+        if table_name is None:
+            table_name = (
+                os.environ.get(TABLE_NAME_ENV)
+                or _load_dynamo_config().get("table_name")
+                or DEFAULT_TABLE_NAME
+            )
+        self.table_name = table_name
+        self.client = client if client is not None else boto3.client("dynamodb")
+        self.max_retries, self.base_delay = _retry_settings(max_retries, base_delay)
+        self._deserializer = TypeDeserializer()
+
+    def _from_dynamo(self, raw: dict) -> dict:
+        return {k: _plain(self._deserializer.deserialize(v)) for k, v in raw.items()}
+
+    def get_item(self, movie_id: str) -> dict | None:
+        """The item for `movie_id`, or None if the table has no such key."""
+        response = self.client.get_item(
+            TableName=self.table_name, Key={"movie_id": {"S": str(movie_id)}}
+        )
+        raw = response.get("Item")
+        return self._from_dynamo(raw) if raw else None
+
+    def batch_get(self, ids: list[str]) -> list[dict]:
+        """Items for `ids`, in the requested order.
+
+        Keys go out at most BATCH_GET_SIZE per call (duplicates dropped: the
+        service rejects a request that repeats a key). UnprocessedKeys are
+        resent with exponential backoff and full jitter, up to max_retries
+        times per chunk, then RuntimeError. Ids the table does not hold are
+        logged and skipped.
+        """
+        unique = list(dict.fromkeys(str(i) for i in ids))
+        found: dict[str, dict] = {}
+
+        for start in range(0, len(unique), BATCH_GET_SIZE):
+            pending = [{"movie_id": {"S": i}} for i in unique[start : start + BATCH_GET_SIZE]]
+            attempt = 0
+            while True:
+                response = self.client.batch_get_item(
+                    RequestItems={self.table_name: {"Keys": pending}}
+                )
+                for raw in response.get("Responses", {}).get(self.table_name, []):
+                    item = self._from_dynamo(raw)
+                    found[item["movie_id"]] = item
+                pending = response.get("UnprocessedKeys", {}).get(self.table_name, {}).get("Keys", [])
+                if not pending:
+                    break
+                if attempt >= self.max_retries:
+                    raise RuntimeError(
+                        f"{len(pending)} keys unread from {self.table_name} after "
+                        f"{self.max_retries} retries"
+                    )
+                _sleep(random.uniform(0, self.base_delay * 2**attempt))
+                attempt += 1
+
+        missing = [i for i in unique if i not in found]
+        if missing:
+            log.warning("batch_get: %d ids not in %s: %s", len(missing), self.table_name, missing)
+        return [found[str(i)] for i in ids if str(i) in found]

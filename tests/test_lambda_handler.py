@@ -110,3 +110,12 @@ def test_not_found_status_passes_through(handler):
     status, body = _call(handler, "/api/similar/999")
     assert status == 404
     assert body["found"] is False
+
+
+def test_index_page_is_plain_html(handler):
+    response = handler(function_url_event("/"), LambdaContext())
+    assert response["statusCode"] == 200
+    assert response["headers"]["content-type"].startswith("text/html")
+    assert response["isBase64Encoded"] is False
+    assert response["body"].startswith("<!doctype html>")
+    assert '<input id="q"' in response["body"]

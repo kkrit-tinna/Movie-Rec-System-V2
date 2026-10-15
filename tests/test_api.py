@@ -1,3 +1,8 @@
+import re
+import shutil
+import subprocess
+from pathlib import Path
+
 import boto3
 import pandas as pd
 import pytest
@@ -7,7 +12,7 @@ from rapidfuzz import fuzz, utils
 
 from movierec.api import __main__ as api_main
 from movierec.api.app import METHODS, create_app, load_config
-from movierec.index.titles import build_title_index
+from movierec.index.titles import build_title_index, default_titles_path, load_title_index
 from movierec.storage.dynamo import DynamoReader, DynamoWriter, build_items
 
 TABLE = "movies"
@@ -78,6 +83,58 @@ def client(monkeypatch):
         yield app.test_client()
 
 
+class TestPage:
+    def test_index_is_html_with_search_box(self, client):
+        response = client.get("/")
+        assert response.status_code == 200
+        assert response.mimetype == "text/html"
+        assert '<input id="q"' in response.get_data(as_text=True)
+
+    def test_page_never_uses_innerhtml_or_absolute_api_urls(self, client):
+        page = client.get("/").get_data(as_text=True)
+        script = page[page.index("<script>"):]
+        assert "innerHTML" not in script
+        assert "onerror" not in page
+        assert '"/api/search' in script and '"/api/similar/' in script
+        assert "lambda-url" not in page and "localhost" not in page
+
+    def test_page_never_shows_keywords(self, client):
+        # Keywords are the held-out evaluation label, never a shown reason.
+        page = client.get("/").get_data(as_text=True)
+        assert "keyword" not in page[page.index("<script>"):].lower()
+
+    def test_tmdb_link_built_from_digit_only_id(self, client):
+        page = client.get("/").get_data(as_text=True)
+        fn = re.search(r"function tmdbUrl\(id\) \{.*?\n  \}", page, re.S).group(0)
+        assert "/^[0-9]+$/.test(id)" in fn
+        assert '"https://www.themoviedb.org/movie/" + id' in fn
+        # The only href set on the page comes from tmdbUrl, on the hero.
+        assert page.count(".href =") == 1 and "more.href = url;" in page
+        assert 'more.rel = "noopener noreferrer";' in page
+        if shutil.which("node") is None:
+            pytest.skip("node not installed; static checks only")
+        script = fn + """
+            for (const id of ["27205", 155, "27205x", "1/../x", "", "javascript:1"])
+                console.log(JSON.stringify(tmdbUrl(id)));
+        """
+        out = subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True)
+        assert out.stdout.split() == [
+            '"https://www.themoviedb.org/movie/27205"',
+            '"https://www.themoviedb.org/movie/155"',
+            "null", "null", "null", "null",
+        ]
+
+    def test_example_films_exist_in_title_index(self, client):
+        path = Path(default_titles_path())
+        if not path.exists():
+            pytest.skip(f"title index not built at {path}")
+        page = client.get("/").get_data(as_text=True)
+        examples = dict(re.findall(r'class="chip" data-id="(\d+)">([^<]+)<', page))
+        assert len(examples) == 4
+        by_id = {t["id"]: t["title"] for t in load_title_index(path)}
+        assert {i: by_id.get(i) for i in examples} == examples
+
+
 class TestHealth:
     def test_reports_title_count(self, client):
         assert client.get("/api/health").get_json() == {"status": "ok", "titles": len(TITLES)}
@@ -146,7 +203,7 @@ class TestSimilar:
         body = client.get(f"/api/similar/100?method={method}").get_json()
         assert body["found"] is True
         assert body["method"] == method
-        assert body["query"] == {"id": "100", "title": "Inception", "year": 1990}
+        assert body["query"]["id"] == "100"
         recs = body["recommendations"]
         expected = [str(101 + i) for i in range(K)]
         assert [r["id"] for r in recs] == (expected[::-1] if reverse else expected)
@@ -165,6 +222,34 @@ class TestSimilar:
             "overview": ("overview of The Godfather, " + "x" * 300)[:200],
             "genres": ["Action", "Science Fiction"],
         }
+
+    def test_query_block_has_hero_display_fields(self, client):
+        # Same fields as a card, minus score; from the GetItem already made.
+        assert client.get("/api/similar/100").get_json()["query"] == {
+            "id": "100",
+            "title": "Inception",
+            "year": 1990,
+            "rating": 7.0,
+            "poster_path": "/p0.jpg",
+            "overview": ("overview of Inception, " + "x" * 300)[:200],
+            "genres": ["Action", "Science Fiction"],
+        }
+
+    def test_hero_fields_need_no_extra_dynamodb_calls(self):
+        calls = []
+
+        class CountingReader:
+            def get_item(self, movie_id):
+                calls.append("get_item")
+                return {"movie_id": movie_id, "title": "A", "similar_tfidf": [{"id": "2", "score": 0.5}]}
+
+            def batch_get(self, ids):
+                calls.append("batch_get")
+                return [{"movie_id": i, "title": "B"} for i in ids]
+
+        app = create_app(CountingReader(), [], "tfidf", config=load_config())
+        assert app.test_client().get("/api/similar/1").status_code == 200
+        assert calls == ["get_item", "batch_get"]
 
     def test_default_method_is_the_configured_one(self, client):
         assert client.get("/api/similar/100").get_json()["method"] == "tfidf"

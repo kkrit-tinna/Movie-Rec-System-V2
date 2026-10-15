@@ -67,8 +67,10 @@ resource "aws_lambda_function" "api" {
   package_type  = "Image"
   image_uri     = "${aws_ecr_repository.this["api"].repository_url}:${var.api_image_tag}"
   architectures = ["arm64"]
-  memory_size   = 512
-  timeout       = 10
+  # 1024 MB for CPU, not memory: search is CPU-bound and Lambda CPU scales
+  # with memory; peak use was 168 MB at 512 (§9 2026-10-12, 2026-10-14).
+  memory_size = 1024
+  timeout     = 10
 
   reserved_concurrent_executions = var.api_reserved_concurrency
 

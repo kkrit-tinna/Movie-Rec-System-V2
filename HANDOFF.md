@@ -65,68 +65,83 @@ Target cost: under $0.50/month. Everything is Terraform.
 
 ## Where I am right now
 
-*Last updated: Monday, Oct 12, 2026 — Week 6*
+*Last updated: Wednesday, Oct 14, 2026 — Week 6*
 
-**Status:** Phases 1 and 2 complete. T4.1–T4.3 committed. **T4.4 deployed
-Oct 12** (T4.4a finish + T4.4b in one session; committed as T4.4 tonight).
-The API is **live but not yet shared**: the page lands Wed Oct 14 as a
-separate follow-up commit, and T4.4's Done-when is checked then. Infra is
-live in us-east-1 (T4.1–T4.3 resources + 7 for the API) and stays up.
+**Status:** Phases 1 and 2 complete. T4.1–T4.3 committed. **T4.4 done**:
+the API was deployed and committed on Oct 12, and the page plus 1024 MB
+landed Oct 14 as a separate follow-up commit. **Done-when passed Oct 14**,
+checked on a phone and a laptop (§9 2026-10-14). The site is **live and
+ready to share** at the fair. Infra is live in us-east-1 (T4.1–T4.3
+resources + 7 for the API) and stays up.
 
-**What T4.4 delivered (§9 2026-10-12):**
-- Slim arm64 Lambda image `movierec-api:t4.4-2026-10-12`, digest
-  `sha256:f5c52ba93e60b83cfbfed388cc25946f054145e01b7c0133dd6ca3b17c9ca940`:
-  67.2 MB compressed, 11 layers, no batch deps (guarded by
+- **Function URL:** https://rueyegqfm4fjepd2vbstidhkti0crznq.lambda-url.us-east-1.on.aws/
+- **Live image:** `movierec-api:t4.4-2026-10-14b`, digest
+  `sha256:7cde4be0fb169c8174383e7e45f51cc36466eb7e4e571ad69584130e9bed782d`
+  (`api_image_tag` default). Earlier: `t4.4-2026-10-14` (`f28f426c…`, page
+  + memory), `t4.4-2026-10-12` (`f5c52ba9…`, API only). Each is one plain
+  arm64 Docker v2 manifest, ~67.2 MB
+
+**How the API is built (§9 2026-10-12):**
+- Slim arm64 Lambda image, no batch deps (guarded by
   `tests/test_api_imports.py`). `Dockerfile.api` pins the serving deps;
-  build `make image-api`, push `make push-image-api TAG=...`
+  build `make image-api`, push `make push-image-api TAG=...` with a **new
+  tag every time**, then set `api_image_tag`'s default and apply
 - Mangum + a2wsgi `WSGIMiddleware` in `api/lambda_handler.py`; awslambdaric
   entrypoint; title index bundled at `/app/titles.json.gz`
 - Search: fuzzy-tail length rule, `api.min_fuzzy_length_ratio: 0.4`
 - `infra/lambda.tf`: role (DynamoDB read on `movies`, own logs, ECR pull on
-  `movierec-api`), log group (14 d), function (arm64, 512 MB, 10 s, no VPC,
+  `movierec-api`), log group (14 d), function (arm64, 1024 MB, 10 s, no VPC,
   no reserved concurrency), public Function URL + its two permissions
-- **Function URL:** https://rueyegqfm4fjepd2vbstidhkti0crznq.lambda-url.us-east-1.on.aws/
-  (don't share until the page ships Wed)
-- Live: cold start ~4.6 s (Init 4.2 s); warm `/api/similar` 0.10–0.13 s;
-  warm search ~0.7 s (CPU-bound); peak memory 168 MB of 512; `GET /` is 404
-  until Wed
-- Tests: 215
+
+**What Oct 14 delivered (§9 2026-10-14):**
+- The page, `api/static/index.html`, built fresh: the file was an empty
+  skeleton, not v1's page. One self-contained file, textContent only (no
+  innerHTML), relative `/api/` URLs. It has a start screen with 4 example
+  films (Inception, Toy Story, The Godfather, The Dark Knight), a hero for
+  the picked movie with a "Read the full overview on TMDB →" link, and 10
+  ranked cards (#1–#10, no % match). Tapping a card makes it the hero, with
+  "← back to …". Cards show "Shared genres: …", never keywords
+- Toggle "Match by: Similar details" (tfidf, default) / "Similar feel"
+  (word2vec), with a "How does this work?" note
+- `/api/similar`'s `query` block gained rating, poster_path, overview and
+  genres (no extra DynamoDB calls)
+- Memory 512 → 1024 MB. Init 1,892 ms (was 4,157); warm search 267–286 ms
+  handler / ~0.4 s client (was 627–777 ms / ~0.7 s); `/api/similar` 17–61 ms;
+  peak memory 166 MB. Cheaper per search than at 512 MB
+- Done-when reading: 10 result cards, with posters wherever the data has a
+  `poster_path`. Inception's default view has 9 posters + 1 placeholder
+  (Sonic: The Birth of an Icon has none); Similar feel shows 10
+- Cold starts tonight: 2.64 s (Init 1,892 ms) after the first deploy, then
+  5.39 s (Init 4,881 ms) after the TMDB-link deploy at the same memory.
+  **Cause unverified.** Hypothesis: the first pull after deploying a new
+  image. Re-check on a later cold start
+- Tests: 223
 
 **Spend:** the Oct 7 run cost $0.06, confirmed on the bill. §2's cost table
 holds measured numbers: ~$0.28/month weekly, DynamoDB the largest line. The
 API adds ~$0 at fair traffic (Lambda, Function URL and logs in the free
-tier; ECR now ~314 MB of the 500 MB free allowance).
+tier). ECR is ~316.5 MB of the 500 MB free allowance (API 69.9 MB for 3
+images deduplicated, batch ~246.6 MB); each code-only API rebuild adds
+~1.4 MB.
 
-**Schedule:** deadline **Fri Oct 23** (§9 2026-10-08; table in §7). Priority:
-a live, shareable T4.4 site before the **Oct 15 career fair**.
-- Mon Oct 12: T4.4a finish (Steps A–E) and T4.4b deploy, both done
-- Tue Oct 13: nothing scheduled (T4.4b's slot, done early)
-- **Next: Wed Oct 14 (30 min), in this order:**
-  1. The page: reuse v1 `index.html` (already at `api/static/index.html`),
-     escape overview text, add the `GET /` route, method toggle
-  2. `memory_size` 512 → **1024** in `infra/lambda.tf` (search is CPU-bound;
-     peak memory 168 MB; duration roughly halves, so cost per request is
-     about equal)
-  3. Rebuild with a **new tag**: `make image-api`, `make push-image-api
-     TAG=t4.4-2026-10-14`, set `api_image_tag = "t4.4-2026-10-14"`. Lambda
-     pins the image digest at deploy and our tags are mutable, so re-pushing
-     an old tag does nothing and `terraform plan` shows no change
-  4. One `terraform apply` (memory + tag); confirm State Active /
-     LastUpdateStatus Successful
-  5. Done-when: search "inception" on the Function URL → 10 posters in under
-     2 s warm. Follow-up commit (page + memory), separate from T4.4
-- Thu Oct 15 (fair): open the site once before showing it — the cold start
-  is ~4.6 s
-- Sat Oct 17: T4.5 schedule + alerting, **plus a CloudWatch alarm on the API
-  function's `Invocations`**, emailing via the same SNS topic
+**Schedule:** deadline **Fri Oct 23** (§9 2026-10-08; table in §7).
+- Mon Oct 12 – Wed Oct 14: T4.4 done
+- **Thu Oct 15 (fair):** open the site once before showing it. Cold start
+  is 2.6–5.4 s, then warm
+- **Next: Sat Oct 17 (30–45 min): T4.5 schedule + alerting, including a
+  CloudWatch alarm on the API function's `Invocations`**, emailing via the
+  same SNS topic. When you're there, note the first cold start's Init
+  Duration (re-checks the 4.9 s hypothesis)
 - Sun Oct 18: check the 02:00 scheduled run; T4.6 `make demo` + README;
   Week 6 summary + HANDOFF (Week 5 summary written Oct 9)
 - Mon–Fri Oct 19–23 (15 min/day): T4.6 finish, T4.7 runbook, deferred cleanups
-- No work: Oct 8, Oct 10–11, Oct 15–16
+- No work: Oct 15–16
 
-**Carried to Wed / T4.6:**
+**Carried to T4.5 / T4.6 and after Oct 15:**
 - Port 8000 is free; T4.6's `make demo` uses `localhost:8000`. Local server
   binds 127.0.0.1 unless `MOVIEREC_API_HOST` is set (0.0.0.0 in a container)
+- A local `docker run` of the API image needs `AWS_DEFAULT_REGION`: boto3
+  ignores `AWS_REGION`, which Lambda sets alongside it
 - Title index is **bundled in the API image** for the fair (safe while the
   dataset is frozen). **After Oct 15:** move it to the pipeline
   (`catalog/{run_date}/titles.json.gz` in S3, loaded via `current.json` at
@@ -221,6 +236,15 @@ accepted at negligible cost. The 262-row demo catalog is revisited at
 T4.6. **Oct 19–23 or later:** skip the DynamoDB load when the catalog and
 neighbours are unchanged from the previous run; it is ~85% of the per-run
 cost, and with the frozen dataset every run is currently unchanged.
+**After Oct 15, with the title-index move:** store the full overview in
+each DynamoDB item, so the hero uses it and cards keep `overview_short`
+(today it's a hard 200-character cut and the page trims it to a word).
+**Cost test first**, locally with `build_items` at no AWS cost: item-size
+distribution with the full overview, count over 1 KB, total WCUs for one
+full load, against today's 77,281 WCU (~$0.05/run, ~$0.21/month). Decide
+on the numbers; pair it with skip-the-load-when-unchanged if writes grow.
+Also deferred: a "matched on: …" shared-words explanation, computed in the
+pipeline.
 
 **Reference:** `docs/week3_summary.md` and `docs/week4_summary.md`, §9 of
 `IMPLEMENTATION.md` for every deviation from spec.

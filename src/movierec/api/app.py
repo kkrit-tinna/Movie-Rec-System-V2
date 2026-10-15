@@ -51,8 +51,17 @@ def _exact_index(titles: list[dict]) -> dict[str, list[int]]:
     return index
 
 
-def _brief(item: dict) -> dict:
-    return {"id": item["movie_id"], "title": item.get("title"), "year": item.get("year")}
+def _display(item: dict) -> dict:
+    """The fields a card or the picked-movie hero shows, from one item."""
+    return {
+        "id": item["movie_id"],
+        "title": item.get("title"),
+        "year": item.get("year"),
+        "rating": item.get("vote_average"),
+        "poster_path": item.get("poster_path"),
+        "overview": item.get("overview_short"),
+        "genres": item.get("genres", []),
+    }
 
 
 def create_app(reader, titles: list[dict], default_method: str, config: dict | None = None) -> Flask:
@@ -73,6 +82,11 @@ def create_app(reader, titles: list[dict], default_method: str, config: dict | N
     lengths = [len(_normalize(t["title"])) for t in titles]
 
     app = Flask(__name__)
+
+    @app.route("/")
+    def index():
+        """The site: one self-contained page that calls /api/* same-origin."""
+        return app.send_static_file("index.html")
 
     @app.route("/api/health")
     def health():
@@ -127,20 +141,13 @@ def create_app(reader, titles: list[dict], default_method: str, config: dict | N
         hydrated = reader.batch_get([nb["id"] for nb in neighbours])
 
         recommendations = [
-            {
-                **_brief(movie),
-                "score": scores[movie["movie_id"]],
-                "rating": movie.get("vote_average"),
-                "poster_path": movie.get("poster_path"),
-                "overview": movie.get("overview_short"),
-                "genres": movie.get("genres", []),
-            }
+            {**_display(movie), "score": scores[movie["movie_id"]]}
             for movie in hydrated
         ]
         return jsonify(
             {
                 "found": True,
-                "query": _brief(item),
+                "query": _display(item),
                 "method": method,
                 "recommendations": recommendations,
             }

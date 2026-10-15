@@ -19,7 +19,7 @@ variable "batch_image_tag" {
 variable "api_image_tag" {
   description = "Tag of the movierec-api ECR image the Lambda runs. Use a new tag per rebuild: Lambda pins the digest at deploy."
   type        = string
-  default     = "t4.4-2026-10-12"
+  default     = "t4.4-2026-10-14b"
 }
 
 variable "api_reserved_concurrency" {

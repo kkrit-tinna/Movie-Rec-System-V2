@@ -6,6 +6,8 @@ artifacts/
 # Notes and documentation
 notes/
 MEMORY.md
+docs/week*_summary.md
+docs/v1_review.md
 
 # Environment variables
 .env

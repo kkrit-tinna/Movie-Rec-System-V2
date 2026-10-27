@@ -29,10 +29,10 @@ A content-based movie recommender. Version 1 exists: TF-IDF embeddings, a Flask 
 I priced all three. GCP's always-free tier is actually the most generous and Azure's Container Registry alone costs ~$5/month with no free tier. I chose AWS anyway because it appears in far more Data Engineer postings and I have prior exposure. The cost difference is under $1/month; the career difference is not.
 
 **2. No Spark. No cluster.**
-V1 ran a 6-node Dataproc cluster on ~930K movie records at $30–50/month. That's under a gigabyte of text — it fits in 4 GB of RAM. V2 is a single ~20-minute Fargate task. The rightsizing story is deliberate portfolio material, not an embarrassment.
+V1 ran a 6-node Dataproc cluster on ~930K movie records at $30–50/month. That's under a gigabyte of text — it fits in 4 GB of RAM. V2 is a single ~6-minute Fargate task. The rightsizing story is deliberate portfolio material, not an embarrassment.
 
 **3. Storage was the wrong framing.**
-My original reason for using cloud was that embeddings filled my laptop. But cloud storage is ~$0.023/GB-month — 3 GB costs 7 cents. The real fix was architectural: precompute top-10 neighbours in the batch job, so the big matrices only exist for the 20 minutes the task runs, and the serving layer never loads a matrix at all.
+My original reason for using cloud was that embeddings filled my laptop. But cloud storage is ~$0.023/GB-month — 3 GB costs 7 cents. The real fix was architectural: precompute top-10 neighbours in the batch job, so the big matrices only exist for the ~6 minutes the task runs, and the serving layer never loads a matrix at all.
 
 **4. The user types a title, not a free-text query.**
 So there's nothing to embed at request time. Serving is a DynamoDB key lookup. This is why the API fits on Lambda.
@@ -49,8 +49,8 @@ A NAT Gateway is ~$32/month, roughly 60× the rest of the project. The batch tas
 
 ```
 EventBridge Scheduler (Sun 02:00)
-  └─> ECS Fargate task (2 vCPU / 4 GiB, ~20 min, public subnet, no NAT)
-        download Kaggle → quality gates → fit TF-IDF + Word2Vec
+  └─> ECS Fargate task (2 vCPU / 4 GiB, ~6 min, public subnet, no NAT)
+        download Kaggle → quality gates → fit TF-IDF, embed with GloVe
         → top-K neighbours → evaluate → S3 artifacts + DynamoDB
         → flip current.json
   └─> CloudWatch logs, SNS email on failure
@@ -65,7 +65,11 @@ Target cost: under $0.50/month. Everything is Terraform.
 
 ## Where I am right now
 
-*Last updated: Wednesday, Oct 14, 2026 — Week 6*
+*Last updated: Friday, Oct 23, 2026 — Week 7*
+
+**Since Oct 14:** no work Oct 17–23 (ad hoc tasks). Status is unchanged
+since Oct 14 except the timeline: deadline Fri Oct 23 → **Fri Oct 30**
+(§9 2026-10-23). T4.5, T4.6 and T4.7 are all still open.
 
 **Status:** Phases 1 and 2 complete. T4.1–T4.3 committed. **T4.4 done**:
 the API was deployed and committed on Oct 12, and the page plus 1024 MB
@@ -102,7 +106,7 @@ resources + 7 for the API) and stays up.
   ranked cards (#1–#10, no % match). Tapping a card makes it the hero, with
   "← back to …". Cards show "Shared genres: …", never keywords
 - Toggle "Match by: Similar details" (tfidf, default) / "Similar feel"
-  (word2vec), with a "How does this work?" note
+  (`word2vec`), with a "How does this work?" note
 - `/api/similar`'s `query` block gained rating, poster_path, overview and
   genres (no extra DynamoDB calls)
 - Memory 512 → 1024 MB. Init 1,892 ms (was 4,157); warm search 267–286 ms
@@ -124,18 +128,56 @@ tier). ECR is ~316.5 MB of the 500 MB free allowance (API 69.9 MB for 3
 images deduplicated, batch ~246.6 MB); each code-only API rebuild adds
 ~1.4 MB.
 
-**Schedule:** deadline **Fri Oct 23** (§9 2026-10-08; table in §7).
+**Schedule:** deadline **Fri Oct 30** (§9 2026-10-23; table in §7).
+~1 hour/day Mon Oct 26 – Fri Oct 30, plus Sun Nov 1.
 - Mon Oct 12 – Wed Oct 14: T4.4 done
-- **Thu Oct 15 (fair):** open the site once before showing it. Cold start
-  is 2.6–5.4 s, then warm
-- **Next: Sat Oct 17 (30–45 min): T4.5 schedule + alerting, including a
-  CloudWatch alarm on the API function's `Invocations`**, emailing via the
-  same SNS topic. When you're there, note the first cold start's Init
-  Duration (re-checks the 4.9 s hypothesis)
-- Sun Oct 18: check the 02:00 scheduled run; T4.6 `make demo` + README;
-  Week 6 summary + HANDOFF (Week 5 summary written Oct 9)
-- Mon–Fri Oct 19–23 (15 min/day): T4.6 finish, T4.7 runbook, deferred cleanups
-- No work: Oct 15–16
+- Sat Oct 17 – Fri Oct 23: not worked (§9 2026-10-23)
+- **Next: Mon Oct 26:** add the "Naming accuracy" section to CLAUDE.md
+  (text below, paste verbatim). Investigation of the "Word2Vec" label:
+  grep the repo and classify every occurrence as reader-facing or
+  identifier, with no renames; fix reader-facing text in docs (§9's dated
+  entries stay as the historical record, plus one correction note)
+- Tue Oct 27: T4.5a, Terraform for EventBridge Scheduler (Sun 02:00), SNS
+  topic + email subscription, alarms on task failure, `quality_gate_failed`
+  (via a CloudWatch log metric filter, so no pipeline code change) and the
+  API function's `Invocations`; the page's "How does this work?" note
+  changed to say GloVe, deployed under a new image tag
+- Wed Oct 28: T4.5b Done-when: a manually triggered scheduled run (~$0.06)
+  and a deliberately failing gate (~$0.01, aborts before writes) that
+  produces an email; note the API's next cold-start Init Duration
+  (re-checks the 4.9 s hypothesis)
+- Thu Oct 29: T4.6 `make demo` + README (the dense model is called GloVe
+  in the README); scrub the dead Kaggle key from the public v1 repo
+- Fri Oct 30: T4.7 runbook; Week 6 summary + HANDOFF (Week 5 summary
+  written Oct 9); v2 done
+- Sun Nov 1: verify the first real 02:00 scheduled run; buffer
+- If a day is lost: drop the Kaggle key scrub and the page GloVe fix to
+  v2.1 first; shorten the README before the runbook
+- v3 starts no earlier than Nov 2
+
+**Monday notes (Oct 26): paste this into CLAUDE.md verbatim**
+
+```markdown
+## Naming accuracy (added 2026-10-26)
+The dense embedder uses PRETRAINED GloVe vectors (glove-wiki-gigaword-100),
+combined as an IDF-weighted mean. It is NOT Word2Vec, and nothing in it is
+trained or fitted. The label "word2vec" is a naming error inherited from the
+original plan: §1 named the method family before a model was chosen, T2.1
+chose GloVe without renaming it, and Phase 3 (the only real Word2Vec, a
+from-scratch model in T3.3/T3.4) was dropped on Sep 15. The identifier
+rename is in the v2.1 backlog.
+Rules:
+1. In anything a reader sees (README, docs/, IMPLEMENTATION.md prose, the
+   page, commit messages, summaries, resume text), call it "GloVe" or
+   "pretrained GloVe embeddings". Never "Word2Vec".
+2. Never describe pretrained embeddings as "fit" or "trained".
+3. The identifier `word2vec` is legacy. Don't introduce new uses of it;
+   when touching one, note it in the rename backlog item.
+4. When an implementation choice changes what a spec name refers to, or
+   the work that justified a name is dropped, rename it or log the
+   mismatch in §9 the SAME day. A name must describe what was built,
+   not what was planned.
+```
 
 **Carried to T4.5 / T4.6 and after Oct 15:**
 - Port 8000 is free; T4.6's `make demo` uses `localhost:8000`. Local server
@@ -143,7 +185,7 @@ images deduplicated, batch ~246.6 MB); each code-only API rebuild adds
 - A local `docker run` of the API image needs `AWS_DEFAULT_REGION`: boto3
   ignores `AWS_REGION`, which Lambda sets alongside it
 - Title index is **bundled in the API image** for the fair (safe while the
-  dataset is frozen). **After Oct 15:** move it to the pipeline
+  dataset is frozen). **v2.1 backlog:** move it to the pipeline
   (`catalog/{run_date}/titles.json.gz` in S3, loaded via `current.json` at
   cold start) so search can't drift from DynamoDB
 - **Concurrency (§9 2026-10-12):** the account's Lambda limit is **10**, and
@@ -159,10 +201,11 @@ images deduplicated, batch ~246.6 MB); each code-only API rebuild adds
   matches are returned
 
 **The embedder decision** (full report in `docs/comparison.md`):
-TF-IDF ships. Keyword Jaccard@10 of 0.0376 against Word2Vec's 0.0241 — a
+TF-IDF ships. Keyword Jaccard@10 of 0.0376 against GloVe's 0.0241 — a
 56% margin, 15× the 0.0025 random floor. Genre P@10 was 0.717 vs 0.728,
-too close to separate them and measured on features both models were
-trained on. TF-IDF also fits faster (4.62s vs 16.74s); its only
+too close to separate them and measured on genres, which appear in both
+methods' input text. TF-IDF also builds its embeddings faster (4.62 s vs
+16.74 s; most of GloVe's time is loading the vector file); its only
 disadvantage is 11 MB more on disk.
 
 **Numbers from the real data** (full detail in `docs/schema.md`):
@@ -216,35 +259,48 @@ API (§9 2026-10-12):
 - **Keep-last-5 counts pushes, not deploys:** never push 5 API images
   without applying, or the image the live function is pinned to can expire
 
-**Timeout tuning:** the entrypoint stays `timeout 45m`; propose 15m
-(~2.7× the measured 5.5 min) after a few weekly runs. Needs a rebuild + push.
+**v2.1 backlog** (§9 2026-10-23; not part of v2's finish line, v3 starts
+no earlier than Nov 2):
+- **Title index into the pipeline + search tie-break by vote_count**
+  (needs vote_count in the title index); do the tie-break with the move of
+  the index into the pipeline. Likely also fixes the "jaws the movie" loss
+- **Full overview in DynamoDB**, with the title-index move: store the full
+  overview in each item, so the hero uses it and cards keep
+  `overview_short` (today it's a hard 200-character cut and the page trims
+  it to a word). **Cost test first**, locally with `build_items` at no AWS
+  cost: item-size distribution with the full overview, count over 1 KB,
+  total WCUs for one full load, against today's 77,281 WCU (~$0.05/run,
+  ~$0.21/month). Decide on the numbers; pair it with
+  skip-the-load-when-unchanged if writes grow
+- **Skip the DynamoDB load when unchanged:** skip it when the catalog and
+  neighbours are unchanged from the previous run; it is ~85% of the per-run
+  cost, and with the frozen dataset every run is currently unchanged
+- **Rename the `word2vec` identifiers** (API value, DynamoDB attribute, S3
+  prefix, env var); needs a pipeline run + full reload. See the Naming
+  accuracy section in CLAUDE.md (from Oct 26). Full inventory and the list
+  of identifiers left in place: §9 2026-10-26. Also covers the 9 code
+  docstrings/comments (the page note is T4.5a), and the `word2vec` key
+  in scripts/plot_comparison.py's `COLOURS`/`LABELS` maps (the charts already show "GloVe")
+- **Least-privilege IAM** for movierec-dev; with it, import the
+  `LambdaECRImageRetrievalPolicy` repository policy Lambda added to
+  `movierec-api` into Terraform and remove the role's PullApiImage
+  statement if it's confirmed unused
+- **Dependency pinning + base image by digest:** now a cost issue too:
+  each unpinned rebuild can add a ~230 MB ECR layer against the 500 MB
+  free allowance; includes pinning the `python:3.12-slim` base image by
+  digest (it ships Python 3.12.15, the venv 3.12.5)
+- **Entrypoint timeout 45m → 15m:** the entrypoint stays `timeout 45m`;
+  propose 15m (~2.7× the measured 5.5 min) after a few weekly runs. Needs a
+  rebuild + push
+- **`run_date` semantics:** same-day sample and full runs share a folder
+  and overwrite (run_date is now UTC; full runs move to S3, local
+  `artifacts/` holds sample runs only)
+- **A popularity baseline** in the evaluation
+- **The "matched on: …" explanation:** shared words, computed in the
+  pipeline
 
-**Deferred, with a home:** `run_date` semantics — same-day sample and
-full runs share a folder and overwrite (run_date is now UTC; full runs
-move to S3, local `artifacts/` holds sample runs only). Dependency
-pinning — now a cost issue too: each unpinned rebuild can add a ~230 MB
-ECR layer against the 500 MB free allowance; includes pinning the
-`python:3.12-slim` base image by digest (it ships Python 3.12.15, the venv
-3.12.5). Search tie-break by vote_count (needs vote_count in the title
-index); do it with the post-Oct 15 move of the index into the pipeline.
-Likely also fixes the "jaws the movie" loss. Least-privilege IAM for
-movierec-dev, Oct 19–23 or later; with it, import the
-`LambdaECRImageRetrievalPolicy` repository policy Lambda added to
-`movierec-api` into Terraform and remove the role's PullApiImage statement
-if it's confirmed unused. Delete markers under artifacts/
-accepted at negligible cost. The 262-row demo catalog is revisited at
-T4.6. **Oct 19–23 or later:** skip the DynamoDB load when the catalog and
-neighbours are unchanged from the previous run; it is ~85% of the per-run
-cost, and with the frozen dataset every run is currently unchanged.
-**After Oct 15, with the title-index move:** store the full overview in
-each DynamoDB item, so the hero uses it and cards keep `overview_short`
-(today it's a hard 200-character cut and the page trims it to a word).
-**Cost test first**, locally with `build_items` at no AWS cost: item-size
-distribution with the full overview, count over 1 KB, total WCUs for one
-full load, against today's 77,281 WCU (~$0.05/run, ~$0.21/month). Decide
-on the numbers; pair it with skip-the-load-when-unchanged if writes grow.
-Also deferred: a "matched on: …" shared-words explanation, computed in the
-pipeline.
+Not backlog: delete markers under artifacts/ are accepted at negligible
+cost; the 262-row demo catalog is revisited at T4.6.
 
 **Reference:** `docs/week3_summary.md` and `docs/week4_summary.md`, §9 of
 `IMPLEMENTATION.md` for every deviation from spec.

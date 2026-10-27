@@ -1,15 +1,18 @@
 # Movie Recommender v2 — Implementation Guide (AWS)
 
-**Status:** spec for the upgrade, Sep 8 – Oct 23, 2026 (deadline moved from
-Oct 12 on 2026-10-08; see §7 "Revised schedule" and §9)
-**Budget:** 15 min/day Mon–Fri; 30 min/day Fri Oct 9 and Mon–Wed Oct 12–14;
-the 30–45 min long-session budget applies to Sun Sep 27, Sat Oct 17 and
-Sun Oct 18 only.
+**Status:** spec for the upgrade, Sep 8 – Oct 30, 2026 (deadline moved from
+Oct 12 on 2026-10-08 and from Oct 23 on 2026-10-23; see §7 "Revised
+schedule" and §9)
+**Budget:** ~1 hour/day Mon Oct 26 – Fri Oct 30, plus Sun Nov 1. Until
+Oct 14: 15 min/day Mon–Fri; 30 min/day Fri Oct 9 and Mon–Wed Oct 12–14;
+the 30–45 min long-session budget applied to Sun Sep 27 only.
 **Audience:** the author, and Claude Code
 **Schedule:** Phase 1 slipped one week; Phase 3 dropped Sep 15 and stays
 dropped — the extra week is buffer for Phase 4, not a Phase 3 reinstatement.
-No work Saturdays except Sat Oct 17. No work Sun Sep 20, Sun Oct 4,
-Thu Oct 8, Sat–Sun Oct 10–11, or Thu–Fri Oct 15–16 (career fair Oct 15).
+v2 finishes Mon Oct 26 – Fri Oct 30, with Sun Nov 1 for the first real
+scheduled run. No work Saturdays. No work Sun Sep 20, Sun Oct 4,
+Thu Oct 8, Sat–Sun Oct 10–11, Thu–Fri Oct 15–16 (career fair Oct 15), or
+Sat Oct 17 – Sun Oct 25 (§9 2026-10-23).
 ---
 
 ## 0. How to use this document
@@ -39,7 +42,7 @@ exceeds it, stop, split it, and log the split in §9.
 
 Replace the v1 Dataproc/Spark pipeline with a pluggable-embedder pipeline on AWS that:
 
-- compares TF-IDF against Word2Vec on a **held-out** similarity metric, not vibes
+- compares TF-IDF against pretrained GloVe embeddings on a **held-out** similarity metric, not vibes
 - refreshes weekly, unattended, with data-quality gates that can fail the run
 - costs **under $1/month** at steady state (v1 cost $30–50/month)
 - can be cloned and run end-to-end by a stranger with no AWS account
@@ -62,7 +65,7 @@ Replace the v1 Dataproc/Spark pipeline with a pluggable-embedder pipeline on AWS
                     │                              │
                     │  1. download Kaggle → /tmp   │
                     │  2. quality gates (fail fast)│
-                    │  3. fit TF-IDF + Word2Vec    │
+                    │  3. fit TF-IDF, embed GloVe  │
                     │  4. top-K neighbours, both   │
                     │  5. evaluate → metrics.json  │
                     │  6. write artifacts → S3     │
@@ -94,7 +97,7 @@ Replace the v1 Dataproc/Spark pipeline with a pluggable-embedder pipeline on AWS
 
 | Component | Why not something else |
 |---|---|
-| Fargate for the batch | Lambda caps at 15 min; fitting Word2Vec over 930K docs will exceed it |
+| Fargate for the batch | Headroom: Lambda hard-stops at 15 min with no way to raise it. The measured run is ~5.5 min (1.51M rows ingested into a 77K catalog) and grows with the catalog and the DynamoDB load; Fargate has no cap (the entrypoint uses `timeout 45m`) and runs the same image as local |
 | **Public** subnet, `assignPublicIp: ENABLED` | A private subnet needs a NAT Gateway at ~$32/month — 30× the rest of the bill |
 | DynamoDB for serving | Precomputed top-K means the API is a key lookup. 25 GB and 200M requests/month are always-free |
 | Lambda for the API | Always-free 1M requests. No idle cost. Container image so the title index ships with the code |
@@ -312,7 +315,7 @@ quality:
     overview: 0.60               # expected to be high; the filter handles it
   duplicate_id_rate_max: 0.0
   embedding_nan_rate_max: 0.0
-  zero_vector_rate_max: 0.02     # inert until Word2Vec lands in Phase 2
+  zero_vector_rate_max: 0.02     # inert until GloVe lands in Phase 2
 ```
 
 Write `quality_report.json` next to the metrics on every run, pass or fail.
@@ -326,7 +329,7 @@ Run the full pipeline on the complete dataset locally. Record wall time and peak
 
 ---
 
-## 5. Phase 2 — Word2Vec and evaluation (Week 2, Sep 21–27)
+## 5. Phase 2 — GloVe and evaluation (Week 2, Sep 21–27)
 
 ### T2.1 — `Word2VecEmbedder`
 **Depends on:** T1.5
@@ -359,11 +362,11 @@ Three metrics, evaluated on a fixed sample of **2,000 query movies** with `vote_
 
 **Secondary — Genre Precision@10.** Fraction of top-10 neighbours sharing at least one genre with the query. Genres *are* in the document text, so this measures whether the model learned what it was shown. Report it, but never lead with it.
 
-**Tertiary — latency.** p50 and p95 for a single top-10 lookup, plus total fit time and artifact size on disk.
+**Tertiary — latency.** p50 and p95 for a single top-10 lookup, plus total build time (fit_seconds) and artifact size on disk.
 
 Also record a **random baseline** for both accuracy metrics. A number without a floor is not a result, and "TF-IDF scores 0.31" means nothing until the reader knows random scores 0.04.
 
-**Done when:** `python -m movierec.eval --sample` writes `metrics.json` containing all three methods (tfidf, word2vec, random) × three metrics.
+**Done when:** `python -m movierec.eval --sample` writes `metrics.json` containing all three methods (`tfidf`, `word2vec`, `random`) × three metrics.
 
 ---
 
@@ -394,7 +397,7 @@ Phase 4, T4.7.***
 
 Sweep `max_features` ∈ {10K, 25K, 50K, 100K} × `ngram_range` ∈ {(1,1), (1,2)}. Eight runs on a 50K-movie subsample. Record every run in `docs/comparison.md`, including the ones that lost — a table where every row improved on the last is a table nobody believes. Promote the winner into `config/default.yaml`.
 
-### T3.3 / T3.4 — Word2Vec sweep
+### T3.3 / T3.4 — Word2Vec sweep (dropped Sep 15)
 **Commits:** `feat: word2vec-parameter-analysis`, `feat: word2vec-optimization`
 
 Compare: pretrained GloVe-100 vs. GloVe-300 vs. a Word2Vec trained from scratch on the movie corpus. Domain-trained embeddings often beat general-purpose ones on a narrow corpus — if that happens here it is the most interesting finding in the project, so give it its own paragraph.
@@ -415,7 +418,7 @@ quality:
     overview: 0.60               # expected to be high; the filter handles it
   duplicate_id_rate_max: 0.0
   embedding_nan_rate_max: 0.0
-  zero_vector_rate_max: 0.02     # word2vec OOV documents
+  zero_vector_rate_max: 0.02     # GloVe OOV documents
 ```
 
 Write `quality_report.json` next to the metrics on every run, pass or fail.
@@ -427,10 +430,12 @@ Write the runbook: how to trigger a run manually, how to roll back `current.json
 
 ---
 
-## 7. Phase 4 — AWS (Sep 28 – Oct 23)
+## 7. Phase 4 — AWS (Sep 28 – Oct 30)
 
 **Revised schedule (2026-10-08).** T4.1–T4.3 are done. Priority is a live
 T4.4 site before the Oct 15 career fair; automation and documentation follow.
+**Revised again 2026-10-23:** Oct 17–23 not worked; T4.5–T4.7 move to
+Oct 26–30 (§9 2026-10-23).
 
 | Date | Budget | Work |
 |---|---|---|
@@ -438,9 +443,17 @@ T4.4 site before the Oct 15 career fair; automation and documentation follow.
 | Mon Oct 12 | done | T4.4a finish (`Dockerfile.api` with Mangum + a2wsgi, tested locally) and T4.4b (image pushed, Terraform Lambda + IAM role + Function URL, live). Committed as T4.4. The page slipped to Wed (§9 2026-10-12) |
 | Tue Oct 13 | — | T4.4b's slot; done early on Oct 12 |
 | Wed Oct 14 | done | Follow-up to T4.4 (separate commit): the page (start screen, hero, poster grid, method toggle, TMDB link) + `GET /` route; memory 512 → 1024 MB; deployed as `t4.4-2026-10-14b`; Done-when passed (§9 2026-10-14) |
-| Sat Oct 17 | 30–45 min | T4.5 schedule + alerting, including a CloudWatch alarm on the API function's `Invocations` (same SNS topic) |
-| Sun Oct 18 | 30–45 min | Check the 02:00 scheduled run; T4.6 `make demo` + README; Week 5 summary + HANDOFF |
-| Mon–Fri Oct 19–23 | 15 min/day | T4.6 finish, T4.7 runbook, deferred cleanups. **Deadline Fri Oct 23** |
+| Sat Oct 17 | not worked (§9 2026-10-23) | T4.5 schedule + alerting, including a CloudWatch alarm on the API function's `Invocations` (same SNS topic) |
+| Sun Oct 18 | not worked (§9 2026-10-23) | Check the 02:00 scheduled run; T4.6 `make demo` + README; Week 5 summary + HANDOFF |
+| Mon–Fri Oct 19–23 | not worked (§9 2026-10-23) | T4.6 finish, T4.7 runbook, deferred cleanups. Was the deadline (Fri Oct 23) |
+| Mon Oct 26 | ~1 h | Add the "Naming accuracy" section to CLAUDE.md (text in HANDOFF). Investigation of the "Word2Vec" label: grep the repo and classify every occurrence as reader-facing or identifier, with no renames; fix reader-facing text in docs (§9's dated entries stay as the historical record, plus one correction note) |
+| Tue Oct 27 | ~1 h | T4.5a: Terraform for EventBridge Scheduler (Sun 02:00), SNS topic + email subscription, alarms on task failure, `quality_gate_failed` (via a CloudWatch log metric filter, so no pipeline code change) and the API function's `Invocations`; the page's "How does this work?" note changed to say GloVe, deployed under a new image tag |
+| Wed Oct 28 | ~1 h | T4.5b Done-when: a manually triggered scheduled run (~$0.06) and a deliberately failing gate (~$0.01, aborts before writes) that produces an email; note the API's next cold-start Init Duration |
+| Thu Oct 29 | ~1 h | T4.6 `make demo` + README (the dense model is called GloVe in the README); scrub the dead Kaggle key from the public v1 repo |
+| Fri Oct 30 | ~1 h | T4.7 runbook; Week 6 summary + HANDOFF; v2 done. **Deadline Fri Oct 30** |
+| Sun Nov 1 | ~1 h | Verify the first real 02:00 scheduled run; buffer |
+
+If a day is lost, drop the Kaggle key scrub and the page GloVe fix to v2.1 first; shorten the README before the runbook.
 
 **Before T4.1:** create the AWS account (this project uses the **Free plan** — see §9 2026-09-28; the Free plan ends 2027-03-10, after which the account must be upgraded to Paid to keep running), enable MFA on root, create an IAM admin user, and set a **$2 budget alert**.
 
@@ -522,7 +535,7 @@ separate commit, and the Done-when below is checked then.
 - `GET /api/similar/{movie_id}?method=tfidf` → one DynamoDB `GetItem`, hydrate the 10 neighbour IDs with `BatchGetItem`, return with display fields.
 - `GET /` → `static/index.html`: a search box, a suggestion list, a result grid, and a method toggle.
 
-Ship the **method toggle in the UI.** Letting an interviewer flip between TF-IDF and Word2Vec on the live site and see the results change is worth more than the comparison report they will not open.
+Ship the **method toggle in the UI.** Letting an interviewer flip between TF-IDF and GloVe on the live site and see the results change is worth more than the comparison report they will not open.
 
 **Done when:** searching "inception" on the Function URL returns 10 posters in under 2 seconds warm.
 
@@ -570,7 +583,7 @@ run and roll back a bad one using only this file.
 
 Keep these in the README under "Engineering notes" — reviewers read that section, and it is where the reasoning lives that a bullet point cannot carry.
 
-- **Rightsizing.** v1 ran a 6-node Dataproc cluster for a gigabyte of text at $30–50/month. v2 does the same work in a 20-minute Fargate task for under $1. The story is that you profiled it and found the workload fit in 4 GB. Cost-consciousness is a screened-for data engineering skill that almost no student candidate can demonstrate.
+- **Rightsizing.** v1 ran a 6-node Dataproc cluster for a gigabyte of text at $30–50/month. v2 does the same work in a ~6-minute Fargate task for about $0.28/month. The story is that you profiled it and found the workload fit in 4 GB. Cost-consciousness is a screened-for data engineering skill that almost no student candidate can demonstrate.
 - **Held-out evaluation.** Keywords were deliberately withheld from the document text so they could serve as labels. Most content-based recommender projects evaluate on features the model was trained on and report an impressive meaningless number.
 - **Quality gates with teeth.** The pipeline refuses to publish when the data looks wrong, and there is a test for every gate.
 - **Atomic promotion.** `current.json` gives one-line rollback and doubles as the embedder switch.
@@ -695,3 +708,5 @@ Append here whenever reality differs. Date, task ID, what changed, why (one line
 - 2026-10-12  T4.4a finished (Steps A–E; local, no AWS calls beyond the API's own GetItem/BatchGetItem). Import hygiene: the planned check `python -X importtime -c "import movierec.api.app"` found nothing, because app.py imports only yaml, flask and rapidfuzz and every package `__init__` is empty; the batch deps came in through the entry modules' wiring: index/titles.py (top-level pandas, plus data.ingest, which imports pandas, used only by main()) and storage/dynamo.py (top-level pandas, used at runtime only by `_is_missing` for pd.NA), each pulling numpy and pyarrow; scipy, sklearn, gensim and joblib were never on the path. Fixed with function-level imports (pandas in titles `_year` / `build_title_index` and dynamo `_is_missing`, ingest in titles `main`), hints via `from __future__ import annotations` + TYPE_CHECKING; no behaviour change; the lazy import in `_is_missing` adds ~26 ms to a full 77K build_items. Guard tests/test_api_imports.py: a subprocess imports app, `__main__` and lambda_handler, then serves /api/search and /api/similar (both methods) through a real DynamoReader over a fake client, and asserts none of pandas, numpy, scipy, sklearn, gensim, pyarrow is in sys.modules after either phase; shown to fail for a top-level import in dynamo.py and lambda_handler.py and for a lazy one on the request path (`_plain`). Search: in the fuzzy tail only, a candidate whose normalized title is shorter than `api.min_fuzzy_length_ratio` (0.4) × the query's normalized length is dropped; exact matches unchanged; code fallback DEFAULT_MIN_FUZZY_LENGTH_RATIO kept, per §3's env → yaml → code precedence, like min_query_chars and max_results. Measured (title/query length): noise all ≤ 0.33 ("I", "P" 0.20 for "incep"; "IO" 0.22 for "inception"; "Her" 0.33 for "godfather"; War/Star/Hop/Stone/Ma/99 on long queries); 0.5 would also drop Star Wars for "star wars episode iv" (0.45), Godfather for "the godfather part 2" (0.45) and Matrix for "the matrix 1999" (0.40); known loss at either threshold: Jaws for "jaws the movie" (0.29). M, Up and It still return their exact matches first. Still imperfect: "dark knight" ranks Dark Night (2017, WRatio 95.2) above The Dark Knight (95.0); for "dark night" The Dark Knight is 10th; places 4–10 for "incep" are weak "…Prince" partial matches (WRatio 80). ~65–83 ms per query locally. Deferred: search tie-break by vote_count (needs vote_count in the title index); do it with the post-Oct 15 move of the index into the pipeline. Likely also fixes the "jaws the movie" loss. Adapter: Mangum + a2wsgi's WSGIMiddleware (mangum 0.22.0, a2wsgi 1.10.10, added unpinned to the `[api]` extra); api/lambda_handler.py builds the Flask app once at import (DynamoReader, titles from MOVIEREC_TITLES_PATH, default method from config), `handler = Mangum(WSGIMiddleware(app), lifespan="off")`; Mangum 0.22 raises a harmless DeprecationWarning (no current event loop) on Python 3.12. Local server host: env MOVIEREC_API_HOST → `api.host` (127.0.0.1); the container sets 0.0.0.0. Dockerfile.api: python:3.12-slim; serving deps pinned in the Dockerfile only (flask 3.1.3, markupsafe 3.0.3, rapidfuzz 3.14.6, boto3 1.43.106, botocore 1.43.106, mangum 0.22.0, a2wsgi 1.10.10, pyyaml 6.0.3, awslambdaric 4.2.0), pyproject stays unpinned; awslambdaric is not in the venv (4.2.0 is the newest release) and installs from its cp312 aarch64 wheel; `--only-binary=:all:` makes any source build fail the build, so the image has no build tools; `pip install --no-deps -e .` keeps config/ at /app/config; `compileall` at build + PYTHONDONTWRITEBYTECODE=1 for Lambda's read-only filesystem (handler import verified under `docker run --read-only`); titles.json.gz COPYed to /app via a .dockerignore exception (`artifacts/*`, `!artifacts/api/`, `artifacts/api/*`, `!artifacts/api/titles.json.gz`); ENTRYPOINT `python -m awslambdaric`, CMD `movierec.api.lambda_handler.handler`; Makefile `image-api` / `push-image-api TAG=...`. Image: 24 packages, none of the batch deps; 67.2 MB compressed (`docker image inspect .Size`, containerd store, §9 2026-10-07), 283 MB unpacked, 11 layers. Deferred under dependency pinning: base image pinned by digest (python:3.12-slim currently ships Python 3.12.15; the venv is 3.12.5). Local container check (entrypoint `python -m movierec.api --local`, ~/.aws read-only): /api/health 200 in 5 ms; /api/search?q=incep 200 in 100 ms, Inception 1st; /api/similar/27205 200 in 478 ms (first DynamoDB call, includes credentials and TLS); `import pandas` in the image fails with ModuleNotFoundError. Tests 205 → 215. The page (§7, Mon) slipped to Wed Oct 14.
 - 2026-10-12  T4.4b deployed; the API is live. Account Lambda concurrency limit measured at **10** (10 unreserved, 0 functions). AWS refuses a reservation that leaves fewer than 10 unreserved, so §7's reserved cap of ~5 cannot be set; any cap would fail at apply. Option A chosen: no reservation (`api_reserved_concurrency`, default null; validation allows null or a whole number ≥ 0). With no other functions in the account, the limit of 10 is the effective ceiling. Worst case under abuse: 10 concurrent instances, i.e. Lambda compute and DynamoDB reads at ~2× the planned cap of 5, with the $2 budget alert as backstop. No quota increase requested: raising the account limit would remove the effective ceiling, so any future increase must ship with the cap applied in the same change. Kill switch: `aws lambda put-function-concurrency --function-name movierec-api --reserved-concurrent-executions 0` (0 is always permitted and throttles every request), or `api_reserved_concurrency = 0` + apply; undo with `aws lambda delete-function-concurrency --function-name movierec-api`, or back to null + apply; the CLI route drifts from Terraform until the variable matches. HANDOFF T4.5 scope gains a CloudWatch alarm on the function's Invocations via the same SNS topic. Image: movierec-api:t4.4-2026-10-12, digest sha256:f5c52ba93e60b83cfbfed388cc25946f054145e01b7c0133dd6ca3b17c9ca940, one ECR entry (plain Docker v2 manifest, no index or attestation), 67.2 MB; ECR total ~313.8 MB of the 500 MB allowance (batch ~246.6 MB). infra/lambda.tf, 7 resources: role movierec-api (assumed by lambda.amazonaws.com) with an inline policy of dynamodb:GetItem/BatchGetItem on the movies table, logs:CreateLogStream/PutLogEvents on its own log group, and PullApiImage (ecr:BatchGetImage/GetDownloadUrlForLayer on the movierec-api repository only; added beyond the spec so the grant lives in Terraform: for a same-account image either the role or the repository may grant it); log group /aws/lambda/movierec-api, 14 days, created before the function; function arm64, 512 MB, 10 s, not in a VPC, env MOVIEREC_DYNAMO_TABLE only (Lambda reserves AWS_* names; MOVIEREC_TITLES_PATH comes from the image); Function URL auth NONE with two permissions, lambda:InvokeFunctionUrl (FunctionUrlAuthType NONE) and lambda:InvokeFunction (InvokedViaFunctionUrl true), both required for new URLs since October 2025 per the AWS docs, which only the console and SAM add automatically; output function_url. Plan: 7 to add, no NAT, ALB, EIP or VPC endpoint; `terraform plan` before it showed no drift since Oct 7. Lambda nevertheless added a repository policy to movierec-api, LambdaECRImageRetrievalPolicy (principal lambda.amazonaws.com; BatchGetImage, GetDownloadUrlForLayer, Set/Delete/GetRepositoryPolicy; aws:sourceArn like this account's functions), outside Terraform; left in place. Deferred to Oct 19–23 with least-privilege IAM: import it into Terraform and remove PullApiImage if it's confirmed unused. Function URL: https://rueyegqfm4fjepd2vbstidhkti0crznq.lambda-url.us-east-1.on.aws/ (not to be shared until the page ships Wed). Live, 12 requests in total: cold /api/health 200 in 4.64 s (Init Duration 4,157 ms); /api/search?q=incep 200, Inception 1st; /api/similar/27205 with tfidf, word2vec and no method each 200 with 10 neighbours (no method = tfidf); warm /api/similar 0.10 / 0.13 / 0.11 s (handler 21–92 ms), under the 2 s target; warm search 0.70–0.72 s (handler 627–777 ms); Max Memory Used 168 MB of 512; no errors in the logs; GET / 404, expected: the page and its route land Wed Oct 14. Memory → 1024 MB on Wed, in the same apply as the page (new tag t4.4-2026-10-14), not tonight: peak 168 MB of 512, search is CPU-bound (Lambda CPU scales with memory), and duration should roughly halve, so cost per request stays about equal. Cold start ~4.6 s: open the site once before showing it at the fair. Image tags: Lambda pins the image digest at deploy and the ECR tags are mutable, so re-pushing a tag does not update the function and `terraform plan` shows no change; every rebuild gets a new tag through api_image_tag (same rule for batch_image_tag). Keep-last-5 counts pushes, not deploys: never push 5 API images without applying, or the image the live function is pinned to can expire. Commit split: T4.4 is committed on Oct 12 (by the user); Wednesday's page + memory change is a separate follow-up commit, and T4.4's Done-when (10 posters for "inception" in under 2 s warm) is checked then.
 - 2026-10-14  T4.4 done: the page shipped and the Done-when passed (checked by the user on a phone and a laptop, including the TMDB link). **Page:** `api/static/index.html` was an empty file from the Sep 14 skeleton commit, not v1's page as HANDOFF said, so it was built fresh: one self-contained file (no external JS/CSS), all movie data through textContent/createElement (no innerHTML, no inline onerror), relative `/api/...` URLs only (same-origin, no CORS), 300 ms debounced search with "Title (year)" suggestions (Enter takes the first; arrow keys, Escape), rank badges #1–#10 instead of a % match (Word2Vec scores all sit near 0.90), a CSS/JS poster placeholder showing the title, loading / no-results / error states, dark mode, 2 columns at phone width, and the TMDB attribution line. `GET /` serves it via `send_static_file`; in the image it comes with `COPY src/` (nothing in .dockerignore excludes it). **Deviations from §7's minimal page, after the user's end-user review (Step A2):** (1) a start screen ("Find movies like the ones you love", four example films whose ids were looked up in the title index: Inception 27205, Toy Story 862, The Godfather 238, The Dark Knight 155, each a unique exact match); (2) a hero for the picked movie (poster, year, rating, genres, overview) above "If you liked <title>, try these", and tapping a card makes it the new hero with a "← back to <previous>" in-page history (the trail changes only after a load succeeds); this needed the picked movie's display fields in `/api/similar`'s `query` block (rating, poster_path, overview = overview_short, genres, beside id/title/year), taken from the GetItem already made: backward compatible, no extra DynamoDB calls (tested), no data change; (3) §7's method toggle kept but relabelled in user terms, "Match by: Similar details" (tfidf, default) / "Similar feel" (word2vec), with a collapsed "How does this work?" note naming TF-IDF and Word2Vec/GloVe and the held-out-keyword evaluation; API values unchanged; (4) the only reason shown on a card is "Shared genres: …" with the hero (the card's own genres in muted text when none are shared). Keywords are never shown: they are the held-out evaluation label the models never saw, so presenting them as a reason would be false (tested: the page script never mentions keywords). Shared-genre counts measured for the examples: Inception 4/10, Toy Story 8/10, The Godfather 9/10, The Dark Knight 10/10. (5) **Step A3:** a "Read the full overview on TMDB →" link on the hero only, `https://www.themoviedb.org/movie/<id>` built by `tmdbUrl(id)`, which returns null (no link) unless the id is all digits; target _blank, rel noopener noreferrer (tested statically and by running tmdbUrl in node). `overview_short` is a hard cut at 200 characters (`OVERVIEW_SHORT_CHARS`), often mid-word (Inception's ends `"inc`): the page trims an overview at the limit back to the last whole word and adds "…" (display only). **Done-when as decided at Step A:** "10 result cards, with posters wherever the data has a poster_path". Inception's default view (Similar details / tfidf) shows 9 posters + 1 placeholder: Sonic: The Birth of an Icon (2011, id 270360) has no poster_path; Similar feel (word2vec) shows 10 posters; the other three examples have 10/10 on tfidf. All 19 poster URLs and the w342 hero poster returned 200 from TMDB. **Memory 512 → 1024 MB** (`infra/lambda.tf`), in the same apply as tag t4.4-2026-10-14 (plan 0/1/0, only image_uri and memory_size). Measured after Step D against Oct 12 at 512 MB: Init Duration 1,892 ms (was 4,157); search handler 267–286 ms (was 627–777; client 0.37–0.46 s, was 0.70–0.72); /api/similar handler 17–61 ms (was 21–92; client 0.09–0.15 s); `/` handler 58 ms; Max Memory Used 160–166 MB (was 168). Search 2.3–2.7× faster, so GB-seconds per search fell (~0.28 vs ~0.35). Cold starts measured tonight: 2.64 s client (Init 1,892 ms) after Step D, and 5.39 s (Init 4,881 ms) after A3, at the same memory with a page-only change; cause unverified. Hypothesis: the first cold start after deploying a new image pays for Lambda pulling and caching that image; re-check on a later cold start. **Images** (one plain Docker v2 arm64 manifest each, 11 layers, no index or attestation, ~67.2 MB compressed): t4.4-2026-10-14, sha256:f28f426c619ea757dcf37f5b7ca9468e0ce781294d80f3c834b1603394eda548 (page + memory, deployed in Step D); **t4.4-2026-10-14b**, sha256:7cde4be0fb169c8174383e7e45f51cc36466eb7e4e571ad69584130e9bed782d (adds the TMDB link; plan 0/1/0, only image_uri). **The function now runs t4.4-2026-10-14b** (`api_image_tag` default). Each push added ~1.36 MB (code layers only); ECR ~316.5 MB of the 500 MB allowance (API 69.9 MB deduplicated, 3 images; batch ~246.6 MB). Local `docker run` of the API image needs AWS_DEFAULT_REGION (boto3 ignores AWS_REGION; Lambda sets both); note for T4.6 `make demo`. **Deferred, after Oct 15** (with the title-index move into the pipeline): store the full overview in each DynamoDB item, so the hero shows it and cards keep overview_short (replaces cutting overview_short at a word boundary in build_items). Cost test first, before changing anything, locally with build_items at no AWS cost: from the catalog, the item-size distribution with the full overview added, the count over 1 KB, and total WCUs for one full load, compared with today's 77,281 WCU (~$0.05 per run, ~$0.21/month); decide on the numbers, and pair it with skip-the-load-when-unchanged if writes grow. Also deferred: a "matched on: …" shared-words explanation computed in the pipeline. Tests 215 → 223.
+- 2026-10-23  Timeline revised; no task. No work Oct 17–23 (ad hoc tasks), so T4.5, T4.6 and T4.7 are all still open. Deadline Oct 23 → Oct 30: ~1 hour/day Mon Oct 26 – Fri Oct 30, plus Sun Nov 1 to verify the first real 02:00 scheduled run. The CLAUDE.md naming rule planned for Saturday moved to Mon Oct 26, with the investigation of the "Word2Vec" name (classify every occurrence as reader-facing or identifier; no renames). T4.5 split into T4.5a (Tue Oct 27, Terraform + the page's GloVe note) and T4.5b (Wed Oct 28, Done-when); T4.6 Thu Oct 29 with the v1 Kaggle key scrub; T4.7, the Week 6 summary and HANDOFF Fri Oct 30. If a day is lost, the key scrub and the page GloVe fix drop to v2.1 first, and the README is shortened before the runbook. The remaining deferred items move to a "v2.1 backlog" (HANDOFF) and are not part of v2's finish line: title index moved into the pipeline + search tie-break by vote_count; full overview in DynamoDB (local cost test first); skip the DynamoDB load when unchanged; renaming the word2vec identifiers (API value, DynamoDB attribute, S3 prefix, env var; needs a pipeline run + full reload); least-privilege IAM + importing Lambda's ECR repository policy into Terraform; dependency pinning + base image by digest; entrypoint timeout 45m → 15m; run_date semantics; a popularity baseline in the evaluation; the "matched on: …" explanation. v3 starts no earlier than Nov 2. Header, §7 heading and §7 table updated.
+- 2026-10-26  Naming accuracy; docs only, no task, $0. **Correction note:** entries before this date call the dense model Word2Vec, but it is pretrained GloVe (glove-wiki-gigaword-100, IDF-weighted mean; nothing trained or fitted). §1 named the method family before a model was chosen, T2.1 chose GloVe without renaming it, and Phase 3, the only real Word2Vec (T3.3/T3.4, from scratch), was dropped Sep 15; those entries stay as written. CLAUDE.md gained "Naming accuracy (added 2026-10-26)". **Inventory** (`grep -rIni word2vec`, run as `command grep` because the Claude Code shell's grep wrapper skips gitignored files and missed notes/ and the week summaries): 171 occurrences in 30 files = reader-facing in docs 29 (fixed today), reader-facing in code 10 (docstrings/comments 9 + the page's "How does this work?" note), identifiers in docs 15 (kept, 6 bare method labels backticked), identifiers in code/config/infra/tests 84, naming-accuracy text 14, dropped Phase 3 plan 4 (kept, heading marked "dropped Sep 15"), §9 entries 15 (untouched). Fixes also reworded "fit"/"trained" for GloVe: fit_seconds is the wall time of fit(), which for GloVe is loading the vector file plus encoding, so it is described as build time. Fargate-over-Lambda restated as headroom (Lambda's 15 min hard stop vs the measured run), and "930K docs" dropped. Stale ~20 min runtime corrected to the measured ~6 min (5.5 min, 2026-10-07). **Identifiers left in place:** the `word2vec` method/API value (`?method=word2vec`, the page's `data-method`), DynamoDB attribute `similar_word2vec`, S3 prefix `word2vec/`, env var `MOVIEREC_WORD2VEC_MODEL_PATH`, config key `word2vec:`, `embedders/word2vec.py`, `Word2VecEmbedder`, `word2vec_after_tfidf`, `tests/test_word2vec.py` and test names, the `COLOURS`/`LABELS` keys in scripts/plot_comparison.py, historical commit names. **Charts:** both PNGs said "word2vec" (and "16.7s fit"); re-plotted today from the existing 2026-09-23 metrics.json, no evaluation rerun, via a display-label map in scripts/plot_comparison.py (TF-IDF / GloVe / random, "build", x axis "build time, s (fit_seconds, full catalog)"); an exception to the session's no-scripts/ rule, approved by the user. **Deferred:** the page note to T4.5a (Oct 27); code docstrings/comments and the identifier rename to v2.1 (HANDOFF backlog). **docs/:** week*_summary.md and v1_review.md are now untracked (`git rm --cached`; local files kept, history not rewritten) and gitignored as private notes; comparison.md, schema.md, img/ and the future runbook.md (T4.7) stay tracked. The Sunday routine still writes docs/weekN_summary.md, which git now ignores.

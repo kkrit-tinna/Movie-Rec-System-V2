@@ -16,6 +16,8 @@ OUT = ROOT / "docs" / "img"
 
 # Entity colours stay fixed across both charts; random is a floor, so neutral.
 COLOURS = {"tfidf": "#2a78d6", "word2vec": "#eb6834", "random": "#8a8984"}
+# Reader-facing names; the dense method's key is legacy (pretrained GloVe).
+LABELS = {"tfidf": "TF-IDF", "word2vec": "GloVe", "random": "random"}
 INK, INK_2, GRID, SURFACE = "#0b0b0b", "#52514e", "#e4e3df", "#fcfcfb"
 
 
@@ -37,6 +39,7 @@ def accuracy_by_method(rows, meta, path):
     vals = [r["keyword_jaccard_at_k"] for r in rows]
     bars = ax.bar(methods, vals, width=0.55,
                   color=[COLOURS[m] for m in methods], edgecolor=SURFACE, linewidth=2)
+    ax.set_xticks(range(len(methods)), [LABELS[m] for m in methods])
     for bar, v in zip(bars, vals):
         ax.text(bar.get_x() + bar.get_width() / 2, v, f"{v:.4f}",
                 ha="center", va="bottom", fontsize=9, color=INK)
@@ -65,7 +68,7 @@ def cost_vs_accuracy(rows, meta, path):
             continue
         ax.scatter(r["fit_seconds"], r["keyword_jaccard_at_k"], s=80,
                    color=COLOURS[r["method"]], edgecolor=SURFACE, linewidth=2, zorder=3)
-        ax.annotate(f"{r['method']}\n{r['fit_seconds']:.1f}s fit, {r['artifact_mb']:.1f} MB",
+        ax.annotate(f"{LABELS[r['method']]}\n{r['fit_seconds']:.1f}s build, {r['artifact_mb']:.1f} MB",
                     (r["fit_seconds"], r["keyword_jaccard_at_k"]),
                     xytext=(8, 0), textcoords="offset points",
                     va="center", fontsize=9, color=INK)
@@ -75,7 +78,7 @@ def cost_vs_accuracy(rows, meta, path):
             va="bottom", fontsize=8, color=INK_2)
     ax.set_xlim(0, 25)
     ax.set_ylim(0, 0.045)
-    ax.set_xlabel("fit_seconds (full catalog)", color=INK_2)
+    ax.set_xlabel("build time, s (fit_seconds, full catalog)", color=INK_2)
     ax.set_ylabel(f"Keyword Jaccard@{meta['k']}", color=INK_2)
     ax.set_title("Cost vs accuracy", loc="left", color=INK, fontsize=11)
     fig.text(0.01, 0.01,

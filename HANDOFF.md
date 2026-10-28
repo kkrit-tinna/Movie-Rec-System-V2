@@ -65,7 +65,14 @@ Target cost: under $0.50/month. Everything is Terraform.
 
 ## Where I am right now
 
-*Last updated: Friday, Oct 23, 2026 — Week 7*
+*Last updated: Wednesday, Oct 28, 2026 — Week 8*
+
+**T4.5 done Oct 28** (§9 2026-10-26, 2026-10-28): schedule + alerting live,
+Done-when passed (failing gate → 2 emails; a one-time scheduled run ran end
+to end, `current.json` → 2026-10-28; ~$0.07). Live API image is now
+`t4.5-2026-10-26`; steady-state cold start ≈ 1.9 s, warm the site once
+after each new image. **Next: T4.6 on Thu Oct 29.** The Oct 23 notes
+below are kept for history.
 
 **Since Oct 14:** no work Oct 17–23 (ad hoc tasks). Status is unchanged
 since Oct 14 except the timeline: deadline Fri Oct 23 → **Fri Oct 30**
@@ -258,6 +265,19 @@ API (§9 2026-10-12):
   `api_image_tag`. Same rule for `batch_image_tag`
 - **Keep-last-5 counts pushes, not deploys:** never push 5 API images
   without applying, or the image the live function is pinned to can expire
+Schedule and alerts (§9 2026-10-28):
+- **Trigger a run:** Scheduler has no run-now. Create a one-time `at()`
+  schedule (America/New_York, `ActionAfterCompletion: DELETE`) whose target
+  is the live JSON from `aws scheduler get-schedule --name
+  movierec-weekly-batch`. It deletes itself after firing and stays outside
+  Terraform. ~$0.06 per run
+- **Test alerts:** `aws ecs run-task` with the scheduler's network settings
+  and a command override of `--input data/sample/movies_5k.csv
+  --skip-dynamo`. The gates fail, only `quality/{date}/quality_report.json`
+  is written, and `current.json` does not move. Expect **2 emails within
+  ~6 min** (task-failure rule first, then the gate alarm, delayed by its
+  300 s period). Run it before any real run on the same date, so the real
+  run overwrites the report. ~$0.01
 
 **v2.1 backlog** (§9 2026-10-23; not part of v2's finish line, v3 starts
 no earlier than Nov 2):
@@ -288,7 +308,10 @@ no earlier than Nov 2):
 - **Dependency pinning + base image by digest:** now a cost issue too:
   each unpinned rebuild can add a ~230 MB ECR layer against the 500 MB
   free allowance; includes pinning the `python:3.12-slim` base image by
-  digest (it ships Python 3.12.15, the venv 3.12.5)
+  digest (it ships Python 3.12.15, the venv 3.12.5). Do this before the
+  next image push. The t4.5-2026-10-26 push added ~67 MB (all 11 layers
+  new; the base image may have changed upstream, unconfirmed), and ECR is
+  at ~385 of the 500 MB free allowance
 - **Entrypoint timeout 45m → 15m:** the entrypoint stays `timeout 45m`;
   propose 15m (~2.7× the measured 5.5 min) after a few weekly runs. Needs a
   rebuild + push
@@ -298,6 +321,10 @@ no earlier than Nov 2):
 - **A popularity baseline** in the evaluation
 - **The "matched on: …" explanation:** shared words, computed in the
   pipeline
+- **"No successful run in 8 days" alarm:** T4.5's alerts fire only on a
+  run that fails; a schedule that never fires (disabled, deleted, IAM
+  broken before RunTask) sends nothing. This alarm covers that case, and
+  it is what keeps `current.json` from pointing at an expired run
 
 Not backlog: delete markers under artifacts/ are accepted at negligible
 cost; the 262-row demo catalog is revisited at T4.6.

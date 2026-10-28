@@ -19,7 +19,7 @@ variable "batch_image_tag" {
 variable "api_image_tag" {
   description = "Tag of the movierec-api ECR image the Lambda runs. Use a new tag per rebuild: Lambda pins the digest at deploy."
   type        = string
-  default     = "t4.4-2026-10-14b"
+  default     = "t4.5-2026-10-26"
 }
 
 variable "api_reserved_concurrency" {
@@ -31,4 +31,16 @@ variable "api_reserved_concurrency" {
     condition     = var.api_reserved_concurrency == null ? true : (var.api_reserved_concurrency >= 0 && floor(var.api_reserved_concurrency) == var.api_reserved_concurrency)
     error_message = "api_reserved_concurrency must be null or a whole number >= 0 (0 is the kill switch)."
   }
+}
+
+variable "alert_email" {
+  description = "Address the movierec-alerts SNS topic emails. Set in terraform.tfvars (gitignored)."
+  type        = string
+  sensitive   = true
+}
+
+variable "api_invocations_alarm_threshold" {
+  description = "API Lambda invocations per hour above which the traffic alarm emails."
+  type        = number
+  default     = 1000
 }

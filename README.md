@@ -78,7 +78,7 @@ Each film's neighbours are precomputed in the batch job, so serving is a key loo
 - **Held-out evaluation:** TMDB keyword tags are withheld from the text; on them, TF-IDF beats GloVe 0.0376 vs 0.0241 Keyword Jaccard@10 ([docs/comparison.md](docs/comparison.md)).
 - **Quality gates:** they stop a bad run before anything is published.
 - **Cost:** about $0.28/month on AWS, with no NAT Gateway, public subnet only.
-- **Rollback:** `current.json` records the last published run; rollback reloads DynamoDB from an earlier run's S3 artifacts (see docs/runbook.md).
+- **Rollback:** `current.json` records the last published run; rollback reloads DynamoDB from an earlier run's S3 artifacts (see [docs/runbook.md](docs/runbook.md)).
 
 ## Data and attribution
 

@@ -67,20 +67,23 @@ Target cost: under $0.50/month. Everything is Terraform.
 
 *Last updated: Saturday, Oct 31, 2026 — Week 8*
 
-**T4.6 done Oct 31** (§9 2026-10-31): `make demo` runs on a clean copy with
-no AWS account or Kaggle key (63.8 s first run, 19.7 s second), serving the
-5,000 most-voted films from `demo_artifacts/`, and README.md is written.
-Tests 234. **Next: T4.7, the runbook.** Three things it needs:
-- Rollback means reloading DynamoDB from an earlier run's S3 artifacts, not
-  moving `current.json`, which nothing reads. **No reload command exists
-  yet**: the only path from build_items to DynamoWriter is pipeline.py step 7
-- README.md refers to `docs/runbook.md` as plain text; make it a link once
-  the file exists
-- The first-deploy order and image-tag rule, below under "For the T4.7
-  runbook"; the README no longer has a deployment section
-Still open: the v1 Kaggle key scrub (planned with T4.6, not done in that
-session). Sun Nov 1: verify the first real scheduled run. The notes below
-are kept for history.
+**T4.6 and T4.7 done Oct 31** (§9 2026-10-31). `make demo` runs on a clean copy
+with no AWS account or Kaggle key (63.8 s first run, 19.7 s second), and
+README.md is written. `docs/runbook.md` is written, and rollback is now
+`python -m movierec.reload --run-date D [--dry-run]`: dry-runs passed on real
+S3 (77,281 items, 77,281 WCU for 2026-10-07 and 2026-10-28), but a real reload
+has only run on moto. Tests 247.
+
+**Next, Sun Nov 1:**
+- Verify the scheduled run at 07:00 UTC
+- Scrub the dead Kaggle key from v1's
+  `spark-processing/weekly_movie_processing_spark.py` (HEAD only, no history
+  rewrite)
+- Write the week 7 summary
+- Mark v2 done
+
+Still untested: a real reload, disabling the schedule, and the first-deploy
+order on a fresh account. The notes below are kept for history.
 
 **T4.5 done Oct 28** (§9 2026-10-26, 2026-10-28): schedule + alerting live,
 Done-when passed (failing gate → 2 emails; a one-time scheduled run ran end
@@ -360,6 +363,8 @@ Nov 2):
   run that fails; a schedule that never fires (disabled, deleted, IAM
   broken before RunTask) sends nothing. This alarm covers that case, and
   it is what keeps `current.json` from pointing at an expired run
+- **Measure a real reload's time**
+- **`schedule_enabled` variable** instead of the hardcoded disable command
 
 **Phase 2: Free-text search** (new; depends on Phase 1's pinning and
 title-index move)

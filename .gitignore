@@ -2,6 +2,7 @@
 data/*
 !data/sample/
 artifacts/
+demo_artifacts/
 
 # Notes and documentation
 notes/

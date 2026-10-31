@@ -29,7 +29,7 @@ A content-based movie recommender. Version 1 exists: TF-IDF embeddings, a Flask 
 I priced all three. GCP's always-free tier is actually the most generous and Azure's Container Registry alone costs ~$5/month with no free tier. I chose AWS anyway because it appears in far more Data Engineer postings and I have prior exposure. The cost difference is under $1/month; the career difference is not.
 
 **2. No Spark. No cluster.**
-V1 ran a 6-node Dataproc cluster on ~930K movie records at $30–50/month. That's under a gigabyte of text — it fits in 4 GB of RAM. V2 is a single ~6-minute Fargate task. The rightsizing story is deliberate portfolio material, not an embarrassment.
+V1 ran a 4-node Dataproc cluster on ~930K movie records at $30–50/month. That's under a gigabyte of text — it fits in 4 GB of RAM. V2 is a single ~6-minute Fargate task. The rightsizing story is deliberate portfolio material, not an embarrassment.
 
 **3. Storage was the wrong framing.**
 My original reason for using cloud was that embeddings filled my laptop. But cloud storage is ~$0.023/GB-month — 3 GB costs 7 cents. The real fix was architectural: precompute top-10 neighbours in the batch job, so the big matrices only exist for the ~6 minutes the task runs, and the serving layer never loads a matrix at all.
@@ -41,7 +41,7 @@ So there's nothing to embed at request time. Serving is a DynamoDB key lookup. T
 TMDB keyword tags are deliberately excluded from the text the embeddings are built from, so they can serve as genuine ground truth for Keyword Jaccard@10. **This constraint propagates through the whole project** — if keywords get added back into the document text, the primary metric becomes circular.
 
 **6. Public subnet with a security group, not private + NAT Gateway.**
-A NAT Gateway is ~$32/month, roughly 60× the rest of the project. The batch task listens on no ports, so there's nothing to reach.
+A NAT Gateway is ~$32/month, more than 100× the rest of the bill (~$0.28/month). The batch task listens on no ports, so there's nothing to reach.
 
 ---
 
@@ -65,7 +65,22 @@ Target cost: under $0.50/month. Everything is Terraform.
 
 ## Where I am right now
 
-*Last updated: Wednesday, Oct 28, 2026 — Week 8*
+*Last updated: Saturday, Oct 31, 2026 — Week 8*
+
+**T4.6 done Oct 31** (§9 2026-10-31): `make demo` runs on a clean copy with
+no AWS account or Kaggle key (63.8 s first run, 19.7 s second), serving the
+5,000 most-voted films from `demo_artifacts/`, and README.md is written.
+Tests 234. **Next: T4.7, the runbook.** Three things it needs:
+- Rollback means reloading DynamoDB from an earlier run's S3 artifacts, not
+  moving `current.json`, which nothing reads. **No reload command exists
+  yet**: the only path from build_items to DynamoWriter is pipeline.py step 7
+- README.md refers to `docs/runbook.md` as plain text; make it a link once
+  the file exists
+- The first-deploy order and image-tag rule, below under "For the T4.7
+  runbook"; the README no longer has a deployment section
+Still open: the v1 Kaggle key scrub (planned with T4.6, not done in that
+session). Sun Nov 1: verify the first real scheduled run. The notes below
+are kept for history.
 
 **T4.5 done Oct 28** (§9 2026-10-26, 2026-10-28): schedule + alerting live,
 Done-when passed (failing gate → 2 emails; a one-time scheduled run ran end
@@ -159,7 +174,7 @@ images deduplicated, batch ~246.6 MB); each code-only API rebuild adds
   written Oct 9); v2 done
 - Sun Nov 1: verify the first real 02:00 scheduled run; buffer
 - If a day is lost: drop the Kaggle key scrub and the page GloVe fix to
-  v2.1 first; shorten the README before the runbook
+  v3 first; shorten the README before the runbook
 - v3 starts no earlier than Nov 2
 
 **Monday notes (Oct 26): paste this into CLAUDE.md verbatim**
@@ -172,7 +187,7 @@ trained or fitted. The label "word2vec" is a naming error inherited from the
 original plan: §1 named the method family before a model was chosen, T2.1
 chose GloVe without renaming it, and Phase 3 (the only real Word2Vec, a
 from-scratch model in T3.3/T3.4) was dropped on Sep 15. The identifier
-rename is in the v2.1 backlog.
+rename is in the v3 plan.
 Rules:
 1. In anything a reader sees (README, docs/, IMPLEMENTATION.md prose, the
    page, commit messages, summaries, resume text), call it "GloVe" or
@@ -192,7 +207,7 @@ Rules:
 - A local `docker run` of the API image needs `AWS_DEFAULT_REGION`: boto3
   ignores `AWS_REGION`, which Lambda sets alongside it
 - Title index is **bundled in the API image** for the fair (safe while the
-  dataset is frozen). **v2.1 backlog:** move it to the pipeline
+  dataset is frozen). **v3 plan, Phase 1:** move it to the pipeline
   (`catalog/{run_date}/titles.json.gz` in S3, loaded via `current.json` at
   cold start) so search can't drift from DynamoDB
 - **Concurrency (§9 2026-10-12):** the account's Lambda limit is **10**, and
@@ -265,6 +280,22 @@ API (§9 2026-10-12):
   `api_image_tag`. Same rule for `batch_image_tag`
 - **Keep-last-5 counts pushes, not deploys:** never push 5 API images
   without applying, or the image the live function is pinned to can expire
+First deploy (moved from the README, §9 2026-10-31; proposed order, **never run
+from scratch, so confirm it before writing it down as fact**):
+1. Set a $2 AWS Budgets alert, and set `alert_email` in `infra/terraform.tfvars`
+2. `cd infra && terraform init`. The Lambda function's `image_uri` needs its
+   image in ECR, so a plain first `terraform apply` should fail on it; create
+   the repositories first with
+   `terraform apply -target='aws_ecr_repository.this'`
+3. Build the title index: `python -m movierec.index.titles --input
+   data/raw/TMDB_movie_dataset_v11.csv`
+4. `make image`, `make push-image TAG=...`, `make image-api`,
+   `make push-image-api TAG=...`, each with a new tag
+5. Set `batch_image_tag` and `api_image_tag` to those tags, then
+   `terraform apply`
+6. Put the Kaggle token in SSM with `aws ssm put-parameter --overwrite`
+   (`/movierec/kaggle_api_token`; infra/ssm.tf)
+Image-tag rule: a new tag for every rebuild ("Image tags" above).
 Schedule and alerts (§9 2026-10-28):
 - **Trigger a run:** Scheduler has no run-now. Create a one-time `at()`
   schedule (America/New_York, `ActionAfterCompletion: DELETE`) whose target
@@ -279,11 +310,16 @@ Schedule and alerts (§9 2026-10-28):
   300 s period). Run it before any real run on the same date, so the real
   run overwrites the report. ~$0.01
 
-**v2.1 backlog** (§9 2026-10-23; not part of v2's finish line, v3 starts
-no earlier than Nov 2):
+**v3 plan** (§9 2026-10-23, 2026-10-31; there is no v2.1, and everything left
+goes here, in phases; not part of v2's finish line, v3 starts no earlier than
+Nov 2):
+
+**Phase 1: Hardening** (first; prerequisites for Phases 2 and 3)
 - **Title index into the pipeline + search tie-break by vote_count**
   (needs vote_count in the title index); do the tie-break with the move of
-  the index into the pipeline. Likely also fixes the "jaws the movie" loss
+  the index into the pipeline. Likely also fixes the "jaws the movie" loss.
+  Example of the tie-break problem: "incep" suggests Harry Potter and the
+  Half-Blood Prince second
 - **Full overview in DynamoDB**, with the title-index move: store the full
   overview in each item, so the hero uses it and cards keep
   `overview_short` (today it's a hard 200-character cut and the page trims
@@ -312,22 +348,42 @@ no earlier than Nov 2):
   next image push. The t4.5-2026-10-26 push added ~67 MB (all 11 layers
   new; the base image may have changed upstream, unconfirmed), and ECR is
   at ~385 of the 500 MB free allowance
+  - pytest's 1 known warning is Mangum's asyncio get_event_loop
+    DeprecationWarning in test_lambda_handler; expected, don't fix or filter it
 - **Entrypoint timeout 45m → 15m:** the entrypoint stays `timeout 45m`;
   propose 15m (~2.7× the measured 5.5 min) after a few weekly runs. Needs a
   rebuild + push
 - **`run_date` semantics:** same-day sample and full runs share a folder
   and overwrite (run_date is now UTC; full runs move to S3, local
   `artifacts/` holds sample runs only)
-- **A popularity baseline** in the evaluation
-- **The "matched on: …" explanation:** shared words, computed in the
-  pipeline
 - **"No successful run in 8 days" alarm:** T4.5's alerts fire only on a
   run that fails; a schedule that never fires (disabled, deleted, IAM
   broken before RunTask) sends nothing. This alarm covers that case, and
   it is what keeps `current.json` from pointing at an expired run
 
-Not backlog: delete markers under artifacts/ are accepted at negligible
-cost; the 262-row demo catalog is revisited at T4.6.
+**Phase 2: Free-text search** (new; depends on Phase 1's pinning and
+title-index move)
+- Users type words and get matching films. This reverses v2's §1 non-goal.
+  Call it "free-text search", never "keyword search": `keywords` is the
+  held-out TMDB field
+- Start TF-IDF-first. Decide between loading the vectorizer and matrix in
+  Lambda and a pipeline-built compact index by measuring image size and cold
+  start
+- Evaluate with TMDB keyword tags as held-out queries (a new experiment, to be
+  described at the time)
+
+**Phase 3: Better recommendations**
+- **A popularity baseline** in the evaluation, first
+- **The "matched on: …" explanation:** shared words, computed in the
+  pipeline
+- **Collaborative filtering / hybrid** (needs ratings data)
+- Some recommendations are odd for both methods (e.g. Inception → La Dolce Vita
+  on TF-IDF; The Godfather → Colombiana on GloVe). Text-only similarity has no
+  signal of what audiences watch together; the popularity baseline would
+  quantify it
+
+Not in the plan: delete markers under artifacts/ are accepted at negligible
+cost. The 262-row demo catalog was fixed at T4.6 (`movies_demo.csv`).
 
 **Reference:** `docs/week3_summary.md` and `docs/week4_summary.md`, §9 of
 `IMPLEMENTATION.md` for every deviation from spec.

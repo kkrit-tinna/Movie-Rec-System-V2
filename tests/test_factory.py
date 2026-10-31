@@ -73,3 +73,19 @@ def test_s3_without_bucket_raises():
     # default.yaml ships bucket: null, so with no env var there is no bucket.
     with pytest.raises(ValueError, match=BUCKET_ENV):
         get_store("s3")
+
+
+def test_local_root_argument_then_config_then_default(tmp_path, monkeypatch):
+    assert get_store("local", root=str(tmp_path)).root == tmp_path
+    monkeypatch.setattr(factory, "_load_storage_config", lambda: {"local_root": str(tmp_path)})
+    assert get_store("local").root == tmp_path
+    monkeypatch.setattr(factory, "_load_storage_config", lambda: {})
+    assert str(get_store("local").root) == "artifacts"
+
+
+def test_sample_overlay_moves_the_store_default_does_not():
+    from movierec import pipeline
+
+    assert pipeline.load_config()["storage"]["local_root"] == "./artifacts"
+    repo_overlay = factory.CONFIG_PATH.parent / "sample.yaml"
+    assert pipeline.load_config(str(repo_overlay))["storage"]["local_root"] == "demo_artifacts"

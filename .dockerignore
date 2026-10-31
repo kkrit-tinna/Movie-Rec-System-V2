@@ -4,6 +4,9 @@
 **/kaggle.json
 data/*
 !data/sample/
+# Only `make demo` reads it; neither image needs it.
+data/sample/movies_demo.csv
+demo_artifacts/
 artifacts/*
 # The API image bundles the title index (Dockerfile.api, §7 T4.4).
 !artifacts/api/

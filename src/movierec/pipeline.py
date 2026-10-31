@@ -23,6 +23,7 @@ from pathlib import Path
 
 import yaml
 
+from movierec.config import deep_merge as _deep_merge
 from movierec.data import quality
 from movierec.data.ingest import download, load, prepare
 from movierec.embedders.tfidf import TfidfEmbedder
@@ -39,16 +40,6 @@ CURRENT_PATH = "current.json"
 METHODS = (TfidfEmbedder.name, Word2VecEmbedder.name)
 
 log = logging.getLogger("movierec.pipeline")
-
-
-def _deep_merge(base: dict, overlay: dict) -> dict:
-    merged = dict(base)
-    for key, value in overlay.items():
-        if isinstance(value, dict) and isinstance(merged.get(key), dict):
-            merged[key] = _deep_merge(merged[key], value)
-        else:
-            merged[key] = value
-    return merged
 
 
 def load_config(overlay_path: str | None = None) -> dict:
@@ -199,7 +190,10 @@ def main(argv: list[str] | None = None) -> int:
         level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", stream=sys.stdout
     )
 
-    store = get_store(args.storage)
+    config = load_config(args.config)
+    # Only the overlay can move the store (config/sample.yaml, the demo's own
+    # root); get_store() itself reads default.yaml alone.
+    store = get_store(args.storage, root=config["storage"].get("local_root"))
     skip_dynamo = args.skip_dynamo or isinstance(store, LocalStore)
     if skip_dynamo and not args.skip_dynamo:
         log.info("local storage: --skip-dynamo forced on")
@@ -209,7 +203,7 @@ def main(argv: list[str] | None = None) -> int:
             args.input,
             args.run_date,
             store,
-            load_config(args.config),
+            config,
             config_overlay=args.config,
             skip_dynamo=skip_dynamo,
         )

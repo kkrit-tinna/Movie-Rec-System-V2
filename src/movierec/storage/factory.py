@@ -17,6 +17,7 @@ CONFIG_PATH = Path(__file__).resolve().parents[3] / "config" / "default.yaml"
 BACKEND_ENV = "STORAGE_BACKEND"
 BUCKET_ENV = "MOVIEREC_S3_BUCKET"
 DEFAULT_BACKEND = "local"
+DEFAULT_LOCAL_ROOT = "./artifacts"
 BACKENDS = ("local", "s3")
 
 
@@ -28,13 +29,14 @@ def _load_storage_config() -> dict:
 def get_store(
     backend: str | None = None,
     bucket: str | None = None,
-    root: str = "./artifacts",
+    root: str | None = None,
 ) -> ArtifactStore:
     """Return the configured ArtifactStore.
 
     backend and bucket follow §3's precedence: argument, then env var, then
     config/default.yaml's `storage` block, then code default (local / none).
-    root is LocalStore's directory and is ignored for s3.
+    root is LocalStore's directory: argument, then storage.local_root, then
+    code default. It is ignored for s3.
     """
     config = _load_storage_config()
     if backend is None:
@@ -42,7 +44,7 @@ def get_store(
     backend = backend.strip().lower()
 
     if backend == "local":
-        return LocalStore(root=root)
+        return LocalStore(root=root or config.get("local_root") or DEFAULT_LOCAL_ROOT)
     if backend == "s3":
         if bucket is None:
             bucket = os.environ.get(BUCKET_ENV) or config.get("bucket")

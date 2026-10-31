@@ -43,7 +43,7 @@ trained or fitted. The label "word2vec" is a naming error inherited from the
 original plan: §1 named the method family before a model was chosen, T2.1
 chose GloVe without renaming it, and Phase 3 (the only real Word2Vec, a
 from-scratch model in T3.3/T3.4) was dropped on Sep 15. The identifier
-rename is in the v2.1 backlog.
+rename is in the v3 plan.
 Rules:
 1. In anything a reader sees (README, docs/, IMPLEMENTATION.md prose, the
    page, commit messages, summaries, resume text), call it "GloVe" or

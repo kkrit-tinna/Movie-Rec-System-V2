@@ -14,6 +14,8 @@ import yaml
 from flask import Flask, jsonify, request
 from rapidfuzz import fuzz, process, utils
 
+from movierec.config import deep_merge
+
 CONFIG_PATH = Path(__file__).resolve().parents[3] / "config" / "default.yaml"
 
 # Item attributes written by the batch job: similar_tfidf, similar_word2vec.
@@ -25,9 +27,14 @@ DEFAULT_MIN_FUZZY_LENGTH_RATIO = 0.4
 DEFAULT_K = 10
 
 
-def load_config() -> dict:
+def load_config(overlay_path: str | None = None) -> dict:
+    """default.yaml, with `overlay_path` (e.g. config/sample.yaml) merged over it."""
     with open(CONFIG_PATH) as f:
-        return yaml.safe_load(f)
+        config = yaml.safe_load(f)
+    if overlay_path:
+        with open(overlay_path) as f:
+            config = deep_merge(config, yaml.safe_load(f) or {})
+    return config
 
 
 def _clamp(value: int, upper: int) -> int:
@@ -66,7 +73,8 @@ def _display(item: dict) -> dict:
 
 def create_app(reader, titles: list[dict], default_method: str, config: dict | None = None) -> Flask:
     """Build the app around a DynamoReader-like `reader` (get_item, batch_get)
-    and a title index from movierec.index.titles."""
+    and a title index from movierec.index.titles. LocalReader has the same two
+    methods, for `make demo`."""
     if default_method not in METHODS:
         raise ValueError(f"default_method {default_method!r} not in {METHODS}")
     config = config if config is not None else load_config()

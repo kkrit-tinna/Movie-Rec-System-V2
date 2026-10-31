@@ -80,14 +80,14 @@ Replace the v1 Dataproc/Spark pipeline with a pluggable-embedder pipeline on AWS
   │ artifacts │        │ movie items +  │        │ logs + SNS   │
   │ metrics   │        │ top-K lists    │        │ on failure   │
   │ current   │        └───────┬────────┘        └──────────────┘
-  └─────┬─────┘                │
-        │ titles.json.gz       │
-        ▼                      ▼
+  └───────────┘                │
+                               ▼
      ┌──────────────────────────────┐
      │  Lambda (container image)    │
      │  + Function URL              │
      │  Flask via Mangum            │
      │  rapidfuzz title search      │
+     │  (title index in the image)  │
      └──────────────┬───────────────┘
                     ▼
               browser (static HTML served by the same Lambda)
@@ -98,11 +98,11 @@ Replace the v1 Dataproc/Spark pipeline with a pluggable-embedder pipeline on AWS
 | Component | Why not something else |
 |---|---|
 | Fargate for the batch | Headroom: Lambda hard-stops at 15 min with no way to raise it. The measured run is ~5.5 min (1.51M rows ingested into a 77K catalog) and grows with the catalog and the DynamoDB load; Fargate has no cap (the entrypoint uses `timeout 45m`) and runs the same image as local |
-| **Public** subnet, `assignPublicIp: ENABLED` | A private subnet needs a NAT Gateway at ~$32/month — 30× the rest of the bill |
-| DynamoDB for serving | Precomputed top-K means the API is a key lookup. 25 GB and 200M requests/month are always-free |
+| **Public** subnet, `assignPublicIp: ENABLED` | A private subnet needs a NAT Gateway at ~$32/month — more than 100× the rest of the bill (~$0.28) |
+| DynamoDB for serving | Precomputed top-K means the API is a key lookup. 25 GB of storage is always-free; the always-free tier covers provisioned capacity, not on-demand requests, so reads cost a fraction of a cent at current traffic |
 | Lambda for the API | Always-free 1M requests. No idle cost. Container image so the title index ships with the code |
 | S3 for artifacts | Reproducibility and the comparison report. Not on the serving path |
-| `current.json` pointer | Atomic promotion, one-line rollback, and it *is* the embedder switch |
+| `current.json` pointer | Records the last published run, as an audit pointer. Serving reads DynamoDB directly, so it is neither a rollback lever nor an embedder switch (§9 2026-10-31) |
 
 ### Cost target
 
@@ -114,7 +114,8 @@ Measured on the first full Fargate run, 2026-10-07 (§9); weekly ≈ 4.3 runs/mo
 | Fargate — ~6.5 min × 2 vCPU / 4 GiB ARM64 | ~$0.009 | ~$0.04 |
 | S3 — ~100 MB per run × 60-day window + `models/` (~1.1 GB) + requests | — | ~$0.03 |
 | ECR — batch image 246.5 MB compressed, inside the 500 MB free allowance | — | $0 (~$0.10/GB-month above it) |
-| Lambda, EventBridge, CloudWatch, DynamoDB storage and reads | — | $0 (always free) |
+| Lambda, EventBridge, CloudWatch, DynamoDB storage | — | $0 (always free) |
+| DynamoDB on-demand reads | — | a fraction of a cent at current traffic |
 | **Total** | **~$0.06** | **~$0.28** — meets the < $0.50 target |
 
 DynamoDB writes, not Fargate, are the largest line: the full table is reloaded every run.
@@ -127,7 +128,7 @@ Set a **$2 AWS Budgets alert before task T4.1.** If a month ever exceeds $2, som
 
 ```
 movie-recommender/
-├── README.md                  # architecture diagram + `make demo` first
+├── README.md                  # `make demo` first, then the architecture diagram
 ├── IMPLEMENTATION.md    # this file
 ├── Makefile
 ├── pyproject.toml
@@ -141,6 +142,7 @@ movie-recommender/
 │   ├── storage/
 │   │   ├── base.py            # ArtifactStore ABC
 │   │   ├── local.py           # LocalStore  → ./artifacts/
+│   │   ├── local_reader.py    # LocalReader: serves a local run, for `make demo`
 │   │   └── s3.py              # S3Store
 │   ├── embedders/
 │   │   ├── base.py            # BaseEmbedder ABC
@@ -160,7 +162,8 @@ movie-recommender/
 │       └── static/index.html
 ├── infra/                     # Terraform
 ├── tests/
-├── data/sample/movies_5k.csv  # committed, for `make demo`
+├── data/sample/movies_5k.csv  # committed, for the tests
+├── data/sample/movies_demo.csv # committed, for `make demo`
 └── docs/
     ├── schema.md              # written by T1.1
     └── comparison.md          # written by T2.5
@@ -449,11 +452,11 @@ Oct 26–30 (§9 2026-10-23).
 | Mon Oct 26 | done | Add the "Naming accuracy" section to CLAUDE.md (text in HANDOFF). Investigation of the "Word2Vec" label: grep the repo and classify every occurrence as reader-facing or identifier, with no renames; fix reader-facing text in docs (§9's dated entries stay as the historical record, plus one correction note) |
 | Tue Oct 27 | done Oct 26 | T4.5a: Terraform for EventBridge Scheduler (Sun 02:00), SNS topic + email subscription, alarms on task failure, `quality_gate_failed` (via a CloudWatch log metric filter, so no pipeline code change) and the API function's `Invocations`; the page's "How does this work?" note changed to say GloVe, deployed under a new image tag. Done the evening of Mon Oct 26; task failure became an EventBridge rule, not an alarm (§9 2026-10-26) |
 | Wed Oct 28 | done | T4.5b Done-when: a manually triggered scheduled run (~$0.06) and a deliberately failing gate (~$0.01, aborts before writes) that produces an email; note the API's next cold-start Init Duration |
-| Thu Oct 29 | ~1 h | T4.6 `make demo` + README (the dense model is called GloVe in the README); scrub the dead Kaggle key from the public v1 repo |
+| Thu Oct 29 | done Oct 31, key scrub still open | T4.6 `make demo` + README (the dense model is called GloVe in the README); scrub the dead Kaggle key from the public v1 repo |
 | Fri Oct 30 | ~1 h | T4.7 runbook; Week 6 summary + HANDOFF; v2 done. **Deadline Fri Oct 30** |
 | Sun Nov 1 | ~1 h | Verify the first real 02:00 scheduled run; buffer |
 
-If a day is lost, drop the Kaggle key scrub and the page GloVe fix to v2.1 first; shorten the README before the runbook.
+If a day is lost, drop the Kaggle key scrub and the page GloVe fix to v3 first; shorten the README before the runbook.
 
 **Before T4.1:** create the AWS account (this project uses the **Free plan** — see §9 2026-09-28; the Free plan ends 2027-03-10, after which the account must be upgraded to Paid to keep running), enable MFA on root, create an IAM admin user, and set a **$2 budget alert**.
 
@@ -563,16 +566,20 @@ A failed gate sends two emails (alarm + rule). Scheduler has no run-now, so the 
 `make demo` must, on a clean clone with no AWS credentials and no Kaggle key:
 
 ```
-pip install -e . && \
-python -m movierec.pipeline --input data/sample/movies_5k.csv --storage local --config config/sample.yaml && \
-python -m movierec.api --local
+pip install -e ".[api]"
+python -m movierec.pipeline --input data/sample/movies_demo.csv --storage local --config config/sample.yaml --run-date $(RUN_DATE)
+python -m movierec.api --local --storage local --config config/sample.yaml --run-date $(RUN_DATE)
 ```
 
 and open a working site on `localhost:8000` in under two minutes.
 
+**Done when:** the above reaches a responding server on a clean copy, with both methods returning 10 neighbours for all four example films.
+
+**Done (§9 2026-10-31):** passed on Oct 31: 63.8 s on the first run (with downloads), 19.7 s on the second.
+
 **This target is the single highest-leverage thing in the repo.** Most portfolio projects cannot be run by the person evaluating them. Yours can.
 
-README order: one-sentence description → architecture diagram → `make demo` → results table → cost breakdown → AWS deployment. Installation instructions go last; nobody is installing this before deciding whether they care.
+README order: title, one-sentence description and live-site link → "Run it yourself" (`make demo`, tests, full pipeline) → "How it works" (diagram) → "Engineering notes" (five one-line bullets) → "Data and attribution" → one "Next" line. Results live in `docs/comparison.md`, cost in §2, and deployment in `docs/runbook.md` (T4.7).
 
 ---
 
@@ -581,7 +588,8 @@ README order: one-sentence description → architecture diagram → `make demo` 
 **Commit:** `docs: production-deployment-guide`
 
 `docs/runbook.md`: how to trigger a run manually, how to roll back
-`current.json`, what each alert means, what to do when a gate fails.
+(reload DynamoDB from an earlier run's S3 artifacts; `current.json` only records the
+last published run, §9 2026-10-31), what each alert means, what to do when a gate fails.
 
 **Done when:** a reader who has never seen the project can trigger a
 run and roll back a bad one using only this file.
@@ -592,11 +600,11 @@ run and roll back a bad one using only this file.
 
 Keep these in the README under "Engineering notes" — reviewers read that section, and it is where the reasoning lives that a bullet point cannot carry.
 
-- **Rightsizing.** v1 ran a 6-node Dataproc cluster for a gigabyte of text at $30–50/month. v2 does the same work in a ~6-minute Fargate task for about $0.28/month. The story is that you profiled it and found the workload fit in 4 GB. Cost-consciousness is a screened-for data engineering skill that almost no student candidate can demonstrate.
+- **Rightsizing.** v1 ran a 4-node Dataproc cluster for a gigabyte of text at $30–50/month. v2 does the same work in a ~6-minute Fargate task for about $0.28/month. The story is that you profiled it and found the workload fit in 4 GB. Cost-consciousness is a screened-for data engineering skill that almost no student candidate can demonstrate.
 - **Held-out evaluation.** Keywords were deliberately withheld from the document text so they could serve as labels. Most content-based recommender projects evaluate on features the model was trained on and report an impressive meaningless number.
 - **Quality gates with teeth.** The pipeline refuses to publish when the data looks wrong, and there is a test for every gate.
-- **Atomic promotion.** `current.json` gives one-line rollback and doubles as the embedder switch.
-- **Reproducibility.** Terraform for infrastructure, one Docker image for local and cloud, `make demo` for anyone with a laptop.
+- **Promotion.** `current.json` records the last published run, as an audit pointer. Serving reads DynamoDB directly. Gates are what stop bad data from being published; rollback means reloading DynamoDB from an earlier run's S3 artifacts, kept ~60 days.
+- **Reproducibility.** Terraform for infrastructure, the same batch image for local and Fargate, `make demo` for anyone with a laptop.
 
 ---
 
@@ -720,3 +728,4 @@ Append here whenever reality differs. Date, task ID, what changed, why (one line
 - 2026-10-23  Timeline revised; no task. No work Oct 17–23 (ad hoc tasks), so T4.5, T4.6 and T4.7 are all still open. Deadline Oct 23 → Oct 30: ~1 hour/day Mon Oct 26 – Fri Oct 30, plus Sun Nov 1 to verify the first real 02:00 scheduled run. The CLAUDE.md naming rule planned for Saturday moved to Mon Oct 26, with the investigation of the "Word2Vec" name (classify every occurrence as reader-facing or identifier; no renames). T4.5 split into T4.5a (Tue Oct 27, Terraform + the page's GloVe note) and T4.5b (Wed Oct 28, Done-when); T4.6 Thu Oct 29 with the v1 Kaggle key scrub; T4.7, the Week 6 summary and HANDOFF Fri Oct 30. If a day is lost, the key scrub and the page GloVe fix drop to v2.1 first, and the README is shortened before the runbook. The remaining deferred items move to a "v2.1 backlog" (HANDOFF) and are not part of v2's finish line: title index moved into the pipeline + search tie-break by vote_count; full overview in DynamoDB (local cost test first); skip the DynamoDB load when unchanged; renaming the word2vec identifiers (API value, DynamoDB attribute, S3 prefix, env var; needs a pipeline run + full reload); least-privilege IAM + importing Lambda's ECR repository policy into Terraform; dependency pinning + base image by digest; entrypoint timeout 45m → 15m; run_date semantics; a popularity baseline in the evaluation; the "matched on: …" explanation. v3 starts no earlier than Nov 2. Header, §7 heading and §7 table updated.
 - 2026-10-26  Naming accuracy; docs only, no task, $0. **Correction note:** entries before this date call the dense model Word2Vec, but it is pretrained GloVe (glove-wiki-gigaword-100, IDF-weighted mean; nothing trained or fitted). §1 named the method family before a model was chosen, T2.1 chose GloVe without renaming it, and Phase 3, the only real Word2Vec (T3.3/T3.4, from scratch), was dropped Sep 15; those entries stay as written. CLAUDE.md gained "Naming accuracy (added 2026-10-26)". **Inventory** (`grep -rIni word2vec`, run as `command grep` because the Claude Code shell's grep wrapper skips gitignored files and missed notes/ and the week summaries): 171 occurrences in 30 files = reader-facing in docs 29 (fixed today), reader-facing in code 10 (docstrings/comments 9 + the page's "How does this work?" note), identifiers in docs 15 (kept, 6 bare method labels backticked), identifiers in code/config/infra/tests 84, naming-accuracy text 14, dropped Phase 3 plan 4 (kept, heading marked "dropped Sep 15"), §9 entries 15 (untouched). Fixes also reworded "fit"/"trained" for GloVe: fit_seconds is the wall time of fit(), which for GloVe is loading the vector file plus encoding, so it is described as build time. Fargate-over-Lambda restated as headroom (Lambda's 15 min hard stop vs the measured run), and "930K docs" dropped. Stale ~20 min runtime corrected to the measured ~6 min (5.5 min, 2026-10-07). **Identifiers left in place:** the `word2vec` method/API value (`?method=word2vec`, the page's `data-method`), DynamoDB attribute `similar_word2vec`, S3 prefix `word2vec/`, env var `MOVIEREC_WORD2VEC_MODEL_PATH`, config key `word2vec:`, `embedders/word2vec.py`, `Word2VecEmbedder`, `word2vec_after_tfidf`, `tests/test_word2vec.py` and test names, the `COLOURS`/`LABELS` keys in scripts/plot_comparison.py, historical commit names. **Charts:** both PNGs said "word2vec" (and "16.7s fit"); re-plotted today from the existing 2026-09-23 metrics.json, no evaluation rerun, via a display-label map in scripts/plot_comparison.py (TF-IDF / GloVe / random, "build", x axis "build time, s (fit_seconds, full catalog)"); an exception to the session's no-scripts/ rule, approved by the user. **Deferred:** the page note to T4.5a (Oct 27); code docstrings/comments and the identifier rename to v2.1 (HANDOFF backlog). **docs/:** week*_summary.md and v1_review.md are now untracked (`git rm --cached`; local files kept, history not rewritten) and gitignored as private notes; comparison.md, schema.md, img/ and the future runbook.md (T4.7) stay tracked. The Sunday routine still writes docs/weekN_summary.md, which git now ignores. **T4.5a (evening):** moved up from Tue Oct 27; Terraform + the page note, $0, batch task not run. 11 resources added (infra/schedule.tf 3: scheduler role, its inline policy, the schedule; infra/alerts.tf 8: SNS topic, email subscription, topic policy, log metric filter, 2 alarms, EventBridge rule + target), then 1 changed (Lambda image). **Task failure is an EventBridge rule, not §7's "CloudWatch alarm":** Container Insights is off, so ECS publishes no task-failure metric to alarm on. Rule movierec-batch-task-failed matches source aws.ecs, "ECS Task State Change", clusterArn = movierec, lastStatus STOPPED, and $or of two patterns: containers.exitCode anything-but 0 (1 = gate failure or crash, 124 = the 45m timeout, 137 = out of memory) and stopCode TaskFailedToStart (a task that never starts has no exit code); an input transformer sends one plain-text line (exit code, stopCode, stoppedReason, task ARN). **Gate alarm:** a metric filter on /ecs/movierec for the token "quality_gate_failed" feeds movierec/QualityGateFailed (value 1, no default value); alarm Sum >= 1 over 300 s, 1 period, missing data notBreaching. A failed gate sends **two emails**: the alarm (logged token) and the rule (exit 1), same incident. **Traffic alarm:** AWS/Lambda Invocations for movierec-api, Sum > **1,000 per hour** (`api_invocations_alarm_threshold`, default 1000), missing data notBreaching. All three publish to SNS movierec-alerts (email subscription confirmed); the custom topic policy restates the default owner statement and adds sns:Publish for cloudwatch.amazonaws.com (the two alarm ARNs) and events.amazonaws.com (the rule ARN), each also scoped by aws:SourceAccount. `alert_email` is a sensitive variable with no default, set in the gitignored terraform.tfvars. **Schedule** movierec-weekly-batch: cron(0 2 ? * SUN *) in **America/New_York** (DST-aware), flexible window OFF, FARGATE, 1 task, the 6 default subnets, the batch SG, public IP; task definition pinned to its revision (movierec-batch:1; a batch_image_tag change updates the schedule in the same apply); **maximum_retry_attempts = 0**, because a retry is a second paid run. Sun Nov 1 is the night DST ends, so the first run fires at 02:00 EST = **07:00 UTC**. Scheduler role: assumable by scheduler.amazonaws.com with aws:SourceAccount; ecs:RunTask on movierec-batch:* with ecs:cluster = movierec; iam:PassRole on the execution and task roles only. Subnets: the six default subnets include use1-az3 (us-east-1e); AWS's Fargate Regions page limits that AZ only for Windows containers, so no change for Linux (checked by the user). EventBridge Scheduler has no run-now: T4.5b's manual trigger will be a one-time at() schedule with the same role and target and ActionAfterCompletion DELETE. Cost: the account had 0 alarms, metric filters and rules, so everything is inside the free tiers, $0/month. **Page note** now reads "pretrained GloVe word vectors, averaged across each film's words" (`data-method="word2vec"` kept); tests 223, none asserted the wording. Image **t4.5-2026-10-26**, sha256:48cb843d3a5b1a444ab48431f442c646e24049178228f612962af7a4224998cd, the 4th API image (inside keep-last-5); plan 0/1/0, image_uri only. Unlike earlier code-only pushes (~1.4 MB), all 11 layers are new, base layers included (Python still 3.12.15, aarch64): the unpinned python:3.12-slim base changed since Oct 14 (not verified further). ECR, deduplicated from the manifests: API 137.1 MB (was 69.9), batch 247.5 MB, **total ~384.6 MB of the 500 MB allowance** (~115 MB left, about one more full-base API push), which makes the v2.1 base-image-by-digest item more pressing. **Init Duration**, first cold start on the new image: **3,981 ms** (GET / 200 in 4.52 s client; 1024 MB, Max Memory Used 156 MB). A third first-cold-start-after-a-new-image data point, after 1,892 and 4,881 ms on Oct 14; there is still no later (non-first) cold start at 1024 MB to compare against, so the "first pull of a new image" hypothesis stays open until Wednesday's check. T4.5 is committed after T4.5b's Done-when.
 - 2026-10-28  T4.5b done; T4.5's Done-when passed. No code, config or infra change. **Cold start re-check:** the first cold start since Mon on t4.5-2026-10-26 was Init **1,922 ms** (client 2.71 s, Max Memory Used 156 MB), against 3,981 ms for the first cold start after deploying that image. Steady-state cold start ≈ 1.9 s (1,892 ms on 10-14 too). Consistent with the first-pull hypothesis: 2 of 3 first cold starts after a new image were slow (4,881 / 3,981 ms), 1 was not (1,892 ms). Rule: warm the site once after deploying a new image, before sharing it. **Failing gate** (run first, so the real run overwrites the same-date report): `aws ecs run-task` with the scheduler's network settings and a command override of `--input data/sample/movies_5k.csv --skip-dynamo` against default.yaml; no code or config change. Task e900a0a5870b4aa292249b266de33354. Three gates failed: row_count_min 5,000 vs 1,300,000; row_count_drift_pct 99.67 vs 15; catalog_count_min 262 vs 70,000. Only quality/2026-10-28/quality_report.json was written (734 B), and current.json stayed at 2026-10-07. Both emails arrived: the task-failure rule's one-liner (exit code 1, EssentialContainerExited) at ~16:12 ET, and the gate alarm OK→ALARM at 20:12:57 UTC for the 20:07 datapoint (~6 min, set by the 300 s period). **Manually triggered schedule:** Scheduler has no run-now, so a one-time schedule movierec-t45b-manual was used: at(2026-10-28T16:47:00), America/New_York, ActionAfterCompletion DELETE, target copied from movierec-weekly-batch with get-schedule. It is transient and outside Terraform by design. Task 019f626e9052463f873cc8b9aa686084, startedBy chronos-schedule/movierec-t45b-manua (ECS truncates to 36 chars), ran 16:47:31–16:53:59 ET (6 min 29 s), exit 0. Artifacts written for all five prefixes; current.json flipped to 2026-10-28 at 16:53:34 (~93 s DynamoDB load). The same-date quality report was overwritten (1,240 B; the failed copy is kept as a noncurrent version). The schedule deleted itself, and no alert email was sent. **Cost** ~$0.07 (gate ~$0.01, run ~$0.06).
+- 2026-10-31  T4.6 done; Done-when passed; $0, no AWS calls, no image builds. **Two problems fixed:** (1) `python -m movierec.api --local` built a DynamoReader, so the demo needed AWS credentials: new `storage/local_reader.py` LocalReader serves catalog/{run_date}/catalog.parquet and both methods' neighbours.parquet through build_items() and DynamoReader's _plain, and api/__main__.py gained `--storage local|dynamo` (default dynamo), `--run-date` (required for local) and `--config`; local mode builds the title index in memory, with pandas imports inside the local branch (test_api_imports.py unchanged). (2) The movies_5k.csv catalog (262 movies) held none of the page's 4 example films. **Demo sample:** data/sample/movies_demo.csv, the 5,000 most-voted rows (vote_count descending, id ascending, all 24 columns unchanged) from scripts/make_demo_sample.py, built from the 2026-09-14 raw snapshot (1,495,113 rows), SHA-256 60fb81e5fa271db8d461c1ee9adffa34337d242944b1b480e2fc91c30e9b8a9d, 4.0 MB; all 5,000 survive the filters and dedupe, so the catalog is 5,000 and the sample.yaml floors (5000 / 250) pass and stay as they are. movies_5k.csv stays, for the tests. The demo file is in .dockerignore, so it is excluded from both images, at no ECR cost. **Separate demo store:** storage.local_root (default.yaml ./artifacts, sample.yaml demo_artifacts, gitignored), because row_count_drift_pct compares against the latest earlier report in the same store, and local artifacts/ holds a full-size 2026-10-07 run, so a demo writing there would fail on this machine but not on a stranger's. A second exception to "get_store() reads default.yaml directly": pipeline and API pass the merged root. deep_merge moved to movierec/config.py so the API can merge overlays without pandas. **Timings** on a clean copy (/private/tmp/claude-501/-Users-yifeishi-Desktop-Personal-Projects-movie-rec-system-v2/17b5854e-1f6d-4b29-b746-f457b4e5adb0/scratchpad/clean, a second proxied copy in /private/tmp/claude-501/-Users-yifeishi-Desktop-Personal-Projects-movie-rec-system-v2/17b5854e-1f6d-4b29-b746-f457b4e5adb0/scratchpad/clean_audit), fresh Python 3.12.5 venv, no AWS or Kaggle credentials, empty GENSIM_DATA_DIR, PIP_NO_CACHE_DIR=1: **63.8 s first run, 19.7 s second run**, both under the 2-minute target (repeats 64.3 s and 20.1 s). All 4 example ids return 10 neighbours for both methods with posters. A logging proxy on the cold run saw only pypi.org, files.pythonhosted.org, github.com, raw.githubusercontent.com and release-assets.githubusercontent.com. Known difference: real DynamoDB should trim 8.0 to int 8 where LocalReader and moto keep float 8.0 (not checked against AWS); the same number to the page. Tests 223 → 234, 1 known warning; test_sample_overlay_lowers_only_count_floors renamed and extended for the store root. **§8 promotion claim corrected,** with §2's matching row: nothing reads current.json; it records the last published run, as an audit pointer, and serving reads DynamoDB directly. There is no one-line rollback or embedder switch: gates stop bad data, and rollback means reloading DynamoDB from an earlier run's S3 artifacts (T4.7; no reload command exists yet, the only build_items → DynamoWriter path is pipeline.py step 7). §7 T4.7's wording changed to match. **Other corrections:** §2's diagram lost the S3 → Lambda titles.json.gz arrow (the index is bundled in the image); NAT Gateway ratio 30× (§2) and 60× (HANDOFF) → more than 100× (~$32 against ~$0.28), and §8 states no ratio, so nothing changed there; v1 was 4-node per its README, not 6-node (§8, HANDOFF); DynamoDB's always-free tier covers storage and provisioned capacity, not on-demand requests, so reads are a fraction of a cent (§2); §8's "one Docker image" → the same batch image. **Licence:** the Kaggle dataset is ODC-By (owner asaniczka, now titled "Full TMDB Movies Dataset 2024 (1M Movies)"), attributed in the README beside the TMDB line. **Plan:** there is no v2.1; the v2.1 backlog became v3 Phase 1 on 2026-10-31, except the popularity baseline and the "matched on" explanation, which moved to Phase 3. v3 Phase 2 is free-text search, reversing §1's non-goal. Dated §9 entries still say v2.1. The Kaggle key scrub planned with T4.6 was not part of this session and stays open. Deploy to AWS section removed from the README; deployment steps move to the runbook (T4.7). README restructured for users: results and cost sections dropped (they live in docs/comparison.md and §2); Installation merged into Run it yourself.

@@ -52,12 +52,14 @@ def test_deep_merge_changes_only_overlay_keys():
     }
 
 
-def test_sample_overlay_lowers_only_count_floors():
+def test_sample_overlay_changes_only_count_floors_and_store_root():
     default, sample = pipeline.load_config(), pipeline.load_config(OVERLAY)
     assert sample["quality"]["row_count_min"] == 5000
     assert sample["quality"]["catalog_count_min"] == 250
+    assert sample["storage"]["local_root"] == "demo_artifacts"
     for key in ("row_count_min", "catalog_count_min"):
         default["quality"].pop(key), sample["quality"].pop(key)
+    default["storage"].pop("local_root"), sample["storage"].pop("local_root")
     assert sample == default
 
 

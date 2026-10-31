@@ -1,9 +1,19 @@
 SAMPLE := data/sample/movies_5k.csv
+DEMO_SAMPLE := data/sample/movies_demo.csv
+DEMO_CONFIG := config/sample.yaml
 RUN_DATE := $(shell date +%F)
 IMAGE := movierec-batch:dev
 API_IMAGE := movierec-api:dev
 
-.PHONY: demo-tfidf image push-image image-api push-image-api
+.PHONY: demo demo-tfidf image push-image image-api push-image-api
+
+# Clean clone to working site, no AWS account or Kaggle key (T4.6). DEMO_CONFIG
+# puts the run in its own store (storage.local_root).
+demo:
+	pip install -e ".[api]"
+	python -m movierec.pipeline --input $(DEMO_SAMPLE) --storage local --config $(DEMO_CONFIG) --run-date $(RUN_DATE)
+	@echo "Starting the site at http://localhost:8000"
+	python -m movierec.api --local --storage local --config $(DEMO_CONFIG) --run-date $(RUN_DATE)
 
 demo-tfidf:
 	python -m movierec.data.ingest --input $(SAMPLE) --dry-run

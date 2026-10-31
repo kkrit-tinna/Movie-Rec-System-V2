@@ -97,3 +97,5 @@ storage:
   # supplied by env (.env locally, the task definition on Fargate).
   backend: local
   bucket: null
+  # LocalStore's directory. config/sample.yaml moves it to demo_artifacts/.
+  local_root: ./artifacts

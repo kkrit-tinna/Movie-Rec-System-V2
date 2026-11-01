@@ -65,7 +65,151 @@ Target cost: under $0.50/month. Everything is Terraform.
 
 ## Where I am right now
 
-*Last updated: Saturday, Oct 31, 2026 — Week 8*
+*Last updated: Sunday, Nov 1, 2026*
+
+**v2 is complete** (§9 2026-11-01). The deadline was Oct 30; the last task
+finished Oct 31 and the first unattended scheduled run passed Nov 1.
+
+- **Live site:** https://rueyegqfm4fjepd2vbstidhkti0crznq.lambda-url.us-east-1.on.aws/
+- **Live API image:** `t4.5-2026-10-26`
+- **Schedule:** Sundays 02:00 New York time. The first unattended run passed
+  on Nov 1: first log line 07:00:42 UTC (02:00 EST, the night DST ended), run
+  complete 07:05:29 UTC, no alert email, `current.json` at 2026-11-01, 10 cards
+  for Inception on the live site
+- **Docs:** `README.md` is for users; `docs/runbook.md` is for the operator
+- **v1 repo:** made private on Nov 1 instead of scrubbing the key. It was
+  archived (read-only), and the key was revoked and confirmed dead on Oct 6.
+  **If v1 is ever made public again, remove the hardcoded key from HEAD first**
+
+Still untested: a real reload, disabling the schedule, and the first-deploy
+order on a fresh account.
+
+**v3 plan** (§9 2026-10-23, 2026-10-31; there is no v2.1, and everything left
+goes here, in phases; not part of v2's finish line, v3 starts no earlier than
+Nov 2):
+
+**Phase 1: Hardening** (first; prerequisites for Phases 2 and 3)
+- **Title index into the pipeline + search tie-break by vote_count**
+  (needs vote_count in the title index); do the tie-break with the move of
+  the index into the pipeline. Likely also fixes the "jaws the movie" loss.
+  Example of the tie-break problem: "incep" suggests Harry Potter and the
+  Half-Blood Prince second
+- **Full overview in DynamoDB**, with the title-index move: store the full
+  overview in each item, so the hero uses it and cards keep
+  `overview_short` (today it's a hard 200-character cut and the page trims
+  it to a word). **Cost test first**, locally with `build_items` at no AWS
+  cost: item-size distribution with the full overview, count over 1 KB,
+  total WCUs for one full load, against today's 77,281 WCU (~$0.05/run,
+  ~$0.21/month). Decide on the numbers; pair it with
+  skip-the-load-when-unchanged if writes grow
+- **Skip the DynamoDB load when unchanged:** skip it when the catalog and
+  neighbours are unchanged from the previous run; it is ~85% of the per-run
+  cost, and with the frozen dataset every run is currently unchanged
+- **Rename the `word2vec` identifiers** (API value, DynamoDB attribute, S3
+  prefix, env var); needs a pipeline run + full reload. See the Naming
+  accuracy section in CLAUDE.md (from Oct 26). Full inventory and the list
+  of identifiers left in place: §9 2026-10-26. Also covers the 9 code
+  docstrings/comments (the page note is T4.5a), and the `word2vec` key
+  in scripts/plot_comparison.py's `COLOURS`/`LABELS` maps (the charts already show "GloVe")
+- **Least-privilege IAM** for movierec-dev; with it, import the
+  `LambdaECRImageRetrievalPolicy` repository policy Lambda added to
+  `movierec-api` into Terraform and remove the role's PullApiImage
+  statement if it's confirmed unused
+- **Dependency pinning + base image by digest:** now a cost issue too:
+  each unpinned rebuild can add a ~230 MB ECR layer against the 500 MB
+  free allowance; includes pinning the `python:3.12-slim` base image by
+  digest (it ships Python 3.12.15, the venv 3.12.5). Do this before the
+  next image push. The t4.5-2026-10-26 push added ~67 MB (all 11 layers
+  new; the base image may have changed upstream, unconfirmed), and ECR is
+  at ~385 of the 500 MB free allowance
+  - pytest's 1 known warning is Mangum's asyncio get_event_loop
+    DeprecationWarning in test_lambda_handler; expected, don't fix or filter it
+- **Entrypoint timeout 45m → 15m:** the entrypoint stays `timeout 45m`;
+  propose 15m (~2.7× the measured 5.5 min) after a few weekly runs. Needs a
+  rebuild + push
+- **`run_date` semantics:** same-day sample and full runs share a folder
+  and overwrite (run_date is now UTC; full runs move to S3, local
+  `artifacts/` holds sample runs only)
+- **"No successful run in 8 days" alarm:** T4.5's alerts fire only on a
+  run that fails; a schedule that never fires (disabled, deleted, IAM
+  broken before RunTask) sends nothing. This alarm covers that case, and
+  it is what keeps `current.json` from pointing at an expired run
+- **Measure a real reload's time**
+- **`schedule_enabled` variable** instead of the hardcoded disable command
+
+**Phase 2: Free-text search** (new; depends on Phase 1's pinning and
+title-index move)
+- Users type words and get matching films. This reverses v2's §1 non-goal.
+  Call it "free-text search", never "keyword search": `keywords` is the
+  held-out TMDB field
+- Start TF-IDF-first. Decide between loading the vectorizer and matrix in
+  Lambda and a pipeline-built compact index by measuring image size and cold
+  start
+- Evaluate with TMDB keyword tags as held-out queries (a new experiment, to be
+  described at the time)
+
+**Phase 3: Better recommendations**
+- **A popularity baseline** in the evaluation, first
+- **The "matched on: …" explanation:** shared words, computed in the
+  pipeline
+- **Collaborative filtering / hybrid** (needs ratings data)
+- Some recommendations are odd for both methods (e.g. Inception → La Dolce Vita
+  on TF-IDF; The Godfather → Colombiana on GloVe). Text-only similarity has no
+  signal of what audiences watch together; the popularity baseline would
+  quantify it
+
+Not in the plan: delete markers under artifacts/ are accepted at negligible
+cost. The 262-row demo catalog was fixed at T4.6 (`movies_demo.csv`).
+
+**The embedder decision** (full report in `docs/comparison.md`):
+TF-IDF ships. Keyword Jaccard@10 of 0.0376 against GloVe's 0.0241 — a
+56% margin, 15× the 0.0025 random floor. Genre P@10 was 0.717 vs 0.728,
+too close to separate them and measured on genres, which appear in both
+methods' input text. TF-IDF also builds its embeddings faster (4.62 s vs
+16.74 s; most of GloVe's time is loading the vector file); its only
+disadvantage is 11 MB more on disk.
+
+**Numbers from the real data** (full detail in `docs/schema.md`):
+- 1,510,866 rows ingested (Oct 7; 1,495,113 on Sep 14); 77,281 in catalog;
+  772,810 neighbour rows
+- Raw file has 1,356 duplicate IDs; `prepare()` dedupes explicitly after
+  the filters, keeping max `vote_count`
+- Keyword coverage 85.5% at `vote_count >= 50`, median 5. 1,710 of 2,000
+  sampled queries have keywords; the rest are skipped, not scored zero
+- No collection column, so T2.4 is skipped — Keyword Jaccard@10 is the
+  only held-out metric, with no fallback
+- **Frozen dataset:** the Oct 7 catalog is the same 77,281 ids as Sep 23,
+  with identical vote_count and documents. New raw rows all fail the
+  filters, so a weekly refresh does not currently change recommendations
+  (§3 corrected)
+- Full pipeline at `--memory=4g`: peak 2.58 GiB (step 4). On Fargate:
+  5.5 min, neighbours 189 s, DynamoDB load 94 s
+
+**Environment:**
+- venv `movie_rec_venv/` on Python 3.12.5; container base
+  `python:3.12-slim`, built natively as **arm64** (no `--platform` flag):
+  `make image`. Fargate runs it on ARM64/Graviton. amd64 under emulation hung importing scipy.stats
+- Docker 28.0.4, AWS CLI 2.37.3, Terraform 1.16.4 (1.13.3 until Sep 28;
+  the Sep 25 install was logged wrong). Homebrew could not
+  build the CLIs (Command Line Tools too old for source builds on
+  Sonoma) — both installed from official binaries, so Terraform upgrades
+  are a manual re-download
+- AWS: IAM user `movierec-dev`, us-east-1, ~$0.07 spent (Oct 7 run), $120 credits,
+  $2 budget alert, Free plan ends Mar 10 2027
+- GloVe at `~/glove/glove-100d.kv`; `MOVIEREC_WORD2VEC_MODEL_PATH` in
+  `.env`
+- boto3 and moto added.
+
+**Reference:** `docs/week3_summary.md` and `docs/week4_summary.md`, §9 of
+`IMPLEMENTATION.md` for every deviation from spec.
+
+---
+
+## History
+
+Older dated notes, kept as written. They describe the project as it was on
+those dates, so anything here that disagrees with "Where I am right now" is
+superseded.
 
 **T4.6 and T4.7 done Oct 31** (§9 2026-10-31). `make demo` runs on a clean copy
 with no AWS account or Kaggle key (63.8 s first run, 19.7 s second), and
@@ -225,45 +369,6 @@ Rules:
   matches come first for every query, and under 2 characters only exact
   matches are returned
 
-**The embedder decision** (full report in `docs/comparison.md`):
-TF-IDF ships. Keyword Jaccard@10 of 0.0376 against GloVe's 0.0241 — a
-56% margin, 15× the 0.0025 random floor. Genre P@10 was 0.717 vs 0.728,
-too close to separate them and measured on genres, which appear in both
-methods' input text. TF-IDF also builds its embeddings faster (4.62 s vs
-16.74 s; most of GloVe's time is loading the vector file); its only
-disadvantage is 11 MB more on disk.
-
-**Numbers from the real data** (full detail in `docs/schema.md`):
-- 1,510,866 rows ingested (Oct 7; 1,495,113 on Sep 14); 77,281 in catalog;
-  772,810 neighbour rows
-- Raw file has 1,356 duplicate IDs; `prepare()` dedupes explicitly after
-  the filters, keeping max `vote_count`
-- Keyword coverage 85.5% at `vote_count >= 50`, median 5. 1,710 of 2,000
-  sampled queries have keywords; the rest are skipped, not scored zero
-- No collection column, so T2.4 is skipped — Keyword Jaccard@10 is the
-  only held-out metric, with no fallback
-- **Frozen dataset:** the Oct 7 catalog is the same 77,281 ids as Sep 23,
-  with identical vote_count and documents. New raw rows all fail the
-  filters, so a weekly refresh does not currently change recommendations
-  (§3 corrected)
-- Full pipeline at `--memory=4g`: peak 2.58 GiB (step 4). On Fargate:
-  5.5 min, neighbours 189 s, DynamoDB load 94 s
-
-**Environment:**
-- venv `movie_rec_venv/` on Python 3.12.5; container base
-  `python:3.12-slim`, built natively as **arm64** (no `--platform` flag):
-  `make image`. Fargate runs it on ARM64/Graviton. amd64 under emulation hung importing scipy.stats
-- Docker 28.0.4, AWS CLI 2.37.3, Terraform 1.16.4 (1.13.3 until Sep 28;
-  the Sep 25 install was logged wrong). Homebrew could not
-  build the CLIs (Command Line Tools too old for source builds on
-  Sonoma) — both installed from official binaries, so Terraform upgrades
-  are a manual re-download
-- AWS: IAM user `movierec-dev`, us-east-1, ~$0.07 spent (Oct 7 run), $120 credits,
-  $2 budget alert, Free plan ends Mar 10 2027
-- GloVe at `~/glove/glove-100d.kv`; `MOVIEREC_WORD2VEC_MODEL_PATH` in
-  `.env`
-- boto3 and moto added.
-
 **For the T4.7 runbook:** rollback reaches back ~60 days (run folders expire
 at 60 d, their noncurrent copies 7 d later). The weekly-failure alarm (T4.5)
 is what stops `current.json` from ever pointing at an expired run.
@@ -312,86 +417,6 @@ Schedule and alerts (§9 2026-10-28):
   ~6 min** (task-failure rule first, then the gate alarm, delayed by its
   300 s period). Run it before any real run on the same date, so the real
   run overwrites the report. ~$0.01
-
-**v3 plan** (§9 2026-10-23, 2026-10-31; there is no v2.1, and everything left
-goes here, in phases; not part of v2's finish line, v3 starts no earlier than
-Nov 2):
-
-**Phase 1: Hardening** (first; prerequisites for Phases 2 and 3)
-- **Title index into the pipeline + search tie-break by vote_count**
-  (needs vote_count in the title index); do the tie-break with the move of
-  the index into the pipeline. Likely also fixes the "jaws the movie" loss.
-  Example of the tie-break problem: "incep" suggests Harry Potter and the
-  Half-Blood Prince second
-- **Full overview in DynamoDB**, with the title-index move: store the full
-  overview in each item, so the hero uses it and cards keep
-  `overview_short` (today it's a hard 200-character cut and the page trims
-  it to a word). **Cost test first**, locally with `build_items` at no AWS
-  cost: item-size distribution with the full overview, count over 1 KB,
-  total WCUs for one full load, against today's 77,281 WCU (~$0.05/run,
-  ~$0.21/month). Decide on the numbers; pair it with
-  skip-the-load-when-unchanged if writes grow
-- **Skip the DynamoDB load when unchanged:** skip it when the catalog and
-  neighbours are unchanged from the previous run; it is ~85% of the per-run
-  cost, and with the frozen dataset every run is currently unchanged
-- **Rename the `word2vec` identifiers** (API value, DynamoDB attribute, S3
-  prefix, env var); needs a pipeline run + full reload. See the Naming
-  accuracy section in CLAUDE.md (from Oct 26). Full inventory and the list
-  of identifiers left in place: §9 2026-10-26. Also covers the 9 code
-  docstrings/comments (the page note is T4.5a), and the `word2vec` key
-  in scripts/plot_comparison.py's `COLOURS`/`LABELS` maps (the charts already show "GloVe")
-- **Least-privilege IAM** for movierec-dev; with it, import the
-  `LambdaECRImageRetrievalPolicy` repository policy Lambda added to
-  `movierec-api` into Terraform and remove the role's PullApiImage
-  statement if it's confirmed unused
-- **Dependency pinning + base image by digest:** now a cost issue too:
-  each unpinned rebuild can add a ~230 MB ECR layer against the 500 MB
-  free allowance; includes pinning the `python:3.12-slim` base image by
-  digest (it ships Python 3.12.15, the venv 3.12.5). Do this before the
-  next image push. The t4.5-2026-10-26 push added ~67 MB (all 11 layers
-  new; the base image may have changed upstream, unconfirmed), and ECR is
-  at ~385 of the 500 MB free allowance
-  - pytest's 1 known warning is Mangum's asyncio get_event_loop
-    DeprecationWarning in test_lambda_handler; expected, don't fix or filter it
-- **Entrypoint timeout 45m → 15m:** the entrypoint stays `timeout 45m`;
-  propose 15m (~2.7× the measured 5.5 min) after a few weekly runs. Needs a
-  rebuild + push
-- **`run_date` semantics:** same-day sample and full runs share a folder
-  and overwrite (run_date is now UTC; full runs move to S3, local
-  `artifacts/` holds sample runs only)
-- **"No successful run in 8 days" alarm:** T4.5's alerts fire only on a
-  run that fails; a schedule that never fires (disabled, deleted, IAM
-  broken before RunTask) sends nothing. This alarm covers that case, and
-  it is what keeps `current.json` from pointing at an expired run
-- **Measure a real reload's time**
-- **`schedule_enabled` variable** instead of the hardcoded disable command
-
-**Phase 2: Free-text search** (new; depends on Phase 1's pinning and
-title-index move)
-- Users type words and get matching films. This reverses v2's §1 non-goal.
-  Call it "free-text search", never "keyword search": `keywords` is the
-  held-out TMDB field
-- Start TF-IDF-first. Decide between loading the vectorizer and matrix in
-  Lambda and a pipeline-built compact index by measuring image size and cold
-  start
-- Evaluate with TMDB keyword tags as held-out queries (a new experiment, to be
-  described at the time)
-
-**Phase 3: Better recommendations**
-- **A popularity baseline** in the evaluation, first
-- **The "matched on: …" explanation:** shared words, computed in the
-  pipeline
-- **Collaborative filtering / hybrid** (needs ratings data)
-- Some recommendations are odd for both methods (e.g. Inception → La Dolce Vita
-  on TF-IDF; The Godfather → Colombiana on GloVe). Text-only similarity has no
-  signal of what audiences watch together; the popularity baseline would
-  quantify it
-
-Not in the plan: delete markers under artifacts/ are accepted at negligible
-cost. The 262-row demo catalog was fixed at T4.6 (`movies_demo.csv`).
-
-**Reference:** `docs/week3_summary.md` and `docs/week4_summary.md`, §9 of
-`IMPLEMENTATION.md` for every deviation from spec.
 
 ---
 
